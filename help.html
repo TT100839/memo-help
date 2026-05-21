@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <title>使い方ガイド - 割と使えるメモ</title>
+    <link rel="stylesheet" href="popup.css" />
+    <link rel="stylesheet" href="help.css" />
+  </head>
+  <body>
+    <header class="help-header">
+      <h1>使い方ガイド</h1>
+      <p>左のメニューをクリックするとデモが再生されます</p>
+    </header>
+
+    <div class="help-layout">
+      <nav class="help-nav">
+        <ul class="nav-list">
+          <li><button id="btn-demo-add-tab">新規タブの追加・削除</button></li>
+          <li><button id="btn-demo-drag-tab">タブの並び替え (ドラッグ)</button></li>
+          <li><button id="btn-demo-context-tab">タブの右クリック操作 (複製等)</button></li>
+          <li><button id="btn-demo-search">検索機能とハイライト</button></li>
+          <li><button id="btn-demo-history">Undo / Redo (戻る/やり直し)</button></li>
+          <li><button id="btn-demo-insert">Time / URL / File 挿入</button></li>
+          <li><button id="btn-demo-export">メモのエクスポート (.txt)</button></li>
+          <li><button id="btn-demo-window">ウィンドウモード切替 (⧉)</button></li>
+          <li><button id="btn-demo-shortcuts">ショートカットキー一覧</button></li>
+        </ul>
+      </nav>
+
+      <main class="demo-area">
+        <div class="demo-window" id="demo-window">
+          
+          <div id="header">
+            <div id="tab-container" title="⧉ Drag to pop out"></div>
+            <div class="header-actions">
+              <button id="add-tab-btn" class="icon-btn" title="New Tab (Ctrl + T / Ctrl + N)&#10;Restore Tab (Ctrl + Shift + T / Ctrl + Shift + N)">+</button>
+              <button id="remove-tab-btn" class="icon-btn" style="display: none" title="Delete Tab (Ctrl + W)">-</button>
+              <button id="search-btn" class="icon-btn" title="Search (Ctrl + F, Ctrl + H)">
+                <svg viewBox="0 0 24 24" width="16" height="16">
+                  <path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 14 11.99 14 14z"/>
+                </svg>
+              </button>
+              <button id="mode-switch-btn" class="icon-btn" title="Window Mode (Ctrl + P)">⧉</button>
+            </div>
+          </div>
+
+          <div id="memo-container" class="relative-container" style="flex:1; display:flex; flex-direction:column;">
+            <div id="history-btns" class="history-layer">
+              <button id="undo-btn" class="secondary-action" disabled title="Undo (Ctrl + Z)">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+                  <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" />
+                </svg>
+              </button>
+              <button id="redo-btn" class="secondary-action" disabled title="Redo (Ctrl + Y / Ctrl + Shift + Z)">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+                  <path d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z" />
+                </svg>
+              </button>
+            </div>
+
+            <div id="search-container" style="display: none">
+              <div class="search-row">
+                <input type="text" id="search-input" />
+                <button id="search-prev-btn" class="search-nav" title="(Shift + Enter / ↑)">↑</button>
+                <button id="search-next-btn" class="search-nav" title="(Enter / ↓)">↓</button>
+                <button id="search-close-btn" class="search-nav" title="Close Search (Esc)">✕</button>
+              </div>
+            </div>
+
+            <div id="backdrop"></div>
+            <textarea id="memo-area" style="flex:1;"></textarea>
+          </div>
+
+          <div id="footer">
+            <div class="footer-left">
+              <span id="char-count" class="stat">0 chars</span>
+              <button id="time-btn" class="text-link-btn" title="Insert Time">Time</button>
+              <button id="url-btn" class="text-link-btn" title="Insert URL (Ctrl + D / Ctrl + Shift + D)">URL</button>
+              <button id="file-btn" class="text-link-btn" title="Insert File">File</button>
+            </div>
+            <div class="footer-right" style="display: flex; align-items: center;">
+              <button id="export-btn" class="primary-btn" title="Export .txt (Ctrl + S / Ctrl + Shift + E)">Export</button>
+            </div>
+          </div>
+
+          <div id="links-area"></div>
+          <div id="files-area" style="display: none;"></div>
+          
+          <div id="tab-context-menu" class="context-menu" style="display: none;">
+            <button id="menu-duplicate-tab">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+              <span>Duplicate</span>
+            </button>
+            <button id="menu-add-tab-right">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"></path></svg>
+              <span>Add Right</span>
+            </button>
+            <button id="menu-remove-tab" class="danger-text">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+              <span>Remove Tab</span>
+            </button>
+          </div>
+          
+        </div>
+      </main>
+    </div>
+
+    <script src="help.js"></script>
+  </body>
+</html>

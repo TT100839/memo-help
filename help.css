@@ -1,0 +1,130 @@
+/* ベーススタイル */
+body {
+  margin: 0;
+  padding: 30px 40px;
+  background-color: #f5f5f7;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+  color: #1d1d1f;
+}
+
+.help-header {
+  text-align: center;
+  margin-bottom: 30px;
+}
+
+.help-header h1 {
+  font-size: 26px;
+  margin: 0 0 8px 0;
+  color: #1d1d1f;
+}
+
+/* レイアウト構造（左：目次、右：デモ） */
+.help-layout {
+  display: flex;
+  gap: 40px;
+  max-width: 1050px;
+  margin: 0 auto;
+  align-items: flex-start;
+  justify-content: center;
+}
+
+/* 左側のナビゲーション＆広告エリア */
+.help-nav {
+  width: 260px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.nav-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px; /* 項目増量のため少し縮小 */
+}
+
+.nav-list button {
+  width: 100%;
+  padding: 10px 14px;
+  text-align: left;
+  background: #fff;
+  border: 1px solid #d2d2d7;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.nav-list button:hover {
+  background: #e5f1ff;
+  border-color: #007aff;
+  color: #007aff;
+}
+
+/* 注意書きエリア */
+.notice-box {
+  background: #fff3cd;
+  border: 1px solid #ffe69c;
+  padding: 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  color: #664d03;
+  line-height: 1.5;
+}
+
+/* 広告用プレースホルダー */
+.ad-container {
+  width: 100%;
+  height: 180px;
+  background: #e0e0e0;
+  border: 1px dashed #999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #757575;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+/* 右側のデモウィンドウ */
+.demo-area {
+  flex-shrink: 0;
+}
+
+#demo-window {
+  width: 420px;
+  height: 430px;
+  background-color: #ffffff;
+  border: 1px solid #d2d2d7;
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+  padding: 12px 16px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+}
+
+#demo-window #memo-area {
+  resize: none !important; /* 大きさ変更を禁止 */
+}
+
+/* デモ用のハイライトアニメーション */
+.demo-highlight {
+  animation: pulse-highlight 1.5s infinite;
+  background-color: #e5f1ff !important;
+  border: 1px solid #007aff !important;
+  border-radius: 6px;
+  position: relative;
+  z-index: 9999;
+}
+@keyframes pulse-highlight {
+  0% { box-shadow: 0 0 0 0 rgba(0, 122, 255, 0.4); }
+  70% { box-shadow: 0 0 0 8px rgba(0, 122, 255, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(0, 122, 255, 0); }
+}
