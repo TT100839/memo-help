@@ -1,0 +1,503 @@
+/**
+ * 【全体の役割】
+ * メモ拡張機能の見た目（デザインやレイアウト）を構築するためのCSSファイル
+ * 変数（カスタムプロパティ）を活用して色を一元管理しダークモードにも対応している
+ * フレックスボックスを用いてウィンドウサイズや要素の増減に柔軟に対応するレイアウトを作っている
+ * * 【主なセレクタの役割】
+ * :root ... 全体で共通して使う色情報の変数を保持する
+ * body ... アプリの土台となる大枠のレイアウトとフォントを設定する
+ * #header / #tab-container ... 上部のタブ一覧や各種操作ボタンを配置する領域
+ * #memo-area ... ユーザーがテキストを入力するメインの領域
+ * #backdrop ... 検索時のハイライトをテキストエリアの裏に表示するための領域
+ * #search-container ... 検索窓のポップアップ領域
+ * .context-menu ... 右クリックで表示される操作メニューの領域
+ */
+/* =========================================
+   変数定義（カラースキーム）
+========================================= */
+:root {
+  --bg-color: #ffffff;
+  --text-color: #1d1d1f;
+  --secondary-text: #86868b;
+  --border-color: #d2d2d7;
+  --accent-blue: #007aff;
+  --link-color-normal: rgba(0, 122, 255, 0.6);
+  --link-color-hover: rgba(0, 122, 255, 1);
+  --hover-gray: #f5f5f7;
+  --active-tab-bg: #e5e5ea;
+  --surface-white: #ffffff;
+}
+
+/* =========================================
+   ベーススタイル
+========================================= */
+body {
+  min-width: 340px;
+  margin: 0;
+  padding: 12px 16px;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+  background-color: var(--bg-color);
+  color: var(--text-color);
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  -webkit-font-smoothing: antialiased;
+}
+
+.relative-container {
+  position: relative;
+}
+
+/* =========================================
+   ヘッダー ＆ タブUI
+========================================= */
+#header {
+  display: flex;
+  align-items: flex-start;
+  margin-bottom: 2px;
+}
+
+.header-actions {
+  display: flex;
+  gap: 0px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+#tab-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  flex: 1;
+}
+
+#tab-container button {
+  padding: 6px 8px;
+  min-width: 35px;
+  text-align: center;
+  box-sizing: border-box;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: var(--secondary-text);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.01s ease-out;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+#tab-container button:hover:not(.active) {
+  background-color: var(--hover-gray);
+}
+
+#tab-container button.active {
+  background: var(--active-tab-bg);
+  color: var(--text-color);
+}
+
+#tab-container button.removing {
+  width: 0 !important;
+  min-width: 0 !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+  opacity: 0 !important;
+  border: none !important;
+}
+.tab-dragging {
+  position: fixed !important;
+  z-index: 9999 !important;
+  opacity: 0.9;
+  pointer-events: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  margin: 0 !important;
+  transition: none !important;
+  border-radius: 8px !important;
+  background-color: var(--active-tab-bg) !important;
+  color: var(--text-color) !important;
+  border: none !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+}
+
+/* =========================================
+   メモエリア ＆ ハイライト背景
+========================================= */
+#memo-area, #backdrop {
+  font-size: 14px;
+  line-height: 1.6;
+  font-family: inherit;
+  white-space: pre-wrap !important;
+  word-wrap: break-word !important;
+  overflow-wrap: break-word !important;
+  word-break: break-all !important;
+  letter-spacing: 0px !important;
+  font-kerning: none !important;
+  font-feature-settings: "kern" 0, "palt" 0 !important;
+  font-variant-ligatures: none !important;
+}
+
+#memo-area {
+  resize: both;
+  min-width: 280px;
+  max-width: 780px;
+  min-height: 150px;
+  max-height: 600px;
+  padding: 14px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background-color: var(--surface-white) !important;
+  color: var(--text-color);
+  outline: none;
+  box-sizing: border-box;
+  z-index: 1;
+  position: relative;
+}
+
+#backdrop {
+  position: absolute;
+  background-color: transparent !important;
+  border-radius: 4px;
+  padding: 14px;
+  color: transparent;
+  pointer-events: none;
+  z-index: 2;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+#memo-area:focus {
+  border-color: var(--secondary-text);
+}
+
+#backdrop mark {
+  background-color: rgba(0, 102, 204, 0.2);
+  color: transparent;
+  border-radius: 2px;
+}
+
+/* =========================================
+   検索UI
+========================================= */
+#search-container {
+  position: absolute;
+  top: -16px;
+  right: 0;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 3px 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+}
+
+.search-row {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+#search-input {
+  border: none;
+  background: var(--hover-gray);
+  padding: 6px 10px;
+  width: 130px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--text-color);
+  outline: none;
+}
+
+.search-nav {
+  background: transparent;
+  border: none;
+  color: var(--secondary-text);
+  cursor: pointer;
+  padding: 4px 8px;
+}
+
+/* =========================================
+   フッター ＆ リンクエリア
+========================================= */
+#footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 12px;
+}
+
+.footer-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.stat {
+  font-size: 12px;
+  color: var(--secondary-text);
+}
+
+#links-area {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  margin-top: 12px;
+  padding-bottom: 6px;
+}
+
+.links-label {
+  background-color: var(--secondary-text);
+  color: white;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: bold;
+  flex-shrink: 0;
+}
+
+#links-area a {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--link-color-normal);
+  text-decoration: none;
+  font-size: 13px;
+  transition:
+    background-color 0.2s,
+    color 0.2s;
+  padding: 4px 6px;
+  border-radius: 6px;
+}
+
+#links-area a:hover {
+  background-color: var(--hover-gray);
+  color: var(--link-color-hover);
+  text-decoration: underline;
+}
+
+.link-text {
+  max-width: 70px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: Arial, sans-serif;
+}
+
+.link-icon {
+  flex-shrink: 0;
+}
+#files-area {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  margin-top: 12px;
+  padding-bottom: 6px;
+}
+
+.files-label {
+  background-color: var(--secondary-text);
+  color: white;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: bold;
+  flex-shrink: 0;
+}
+
+.file-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-color);
+  text-decoration: none;
+  font-size: 13px;
+  background-color: var(--hover-gray);
+  padding: 4px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  border: 1px solid var(--border-color);
+  transition: background-color 0.2s, color 0.2s;
+}
+
+.file-link:hover {
+  background-color: var(--border-color);
+  text-decoration: underline;
+}
+
+/* =========================================
+   汎用ボタン ＆ 履歴UI
+========================================= */
+.icon-btn {
+  background: transparent;
+  border: none;
+  color: var(--secondary-text);
+  padding: 0;
+  width: 28px;
+  height: 36px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.icon-btn:hover {
+  background: var(--hover-gray);
+  color: var(--text-color);
+}
+
+.icon-btn svg {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+}
+
+.history-layer {
+  position: absolute;
+  top: 3px;
+  right: 6px;
+  display: flex;
+  gap: 5px;
+  z-index: 10;
+  opacity: 0.25;
+  transition: opacity 0.3s ease;
+}
+
+.history-layer:hover {
+  opacity: 1;
+}
+
+.secondary-action {
+  background: transparent;
+  border: none;
+  color: var(--text-color);
+  cursor: pointer;
+  border-radius: 6px;
+  padding: 4px 8px;
+  transition:
+    background-color 0.2s,
+    opacity 0.2s;
+}
+
+.secondary-action:not(:disabled) {
+  opacity: 1;
+}
+
+.secondary-action:not(:disabled):hover {
+  background-color: var(--hover-gray);
+}
+
+.secondary-action:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.text-link-btn {
+  background: transparent;
+  border: none;
+  color: var(--link-color-normal);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition:
+    color 0.2s,
+    background-color 0.2s;
+}
+
+.text-link-btn:hover {
+  color: var(--link-color-hover);
+  background-color: var(--hover-gray);
+}
+
+.primary-btn {
+  background: var(--accent-blue);
+  color: white;
+  border: none;
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.primary-btn:hover {
+  opacity: 0.85;
+}
+
+/* =========================================
+   コンテキストメニュー
+========================================= */
+.context-menu {
+  position: absolute;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  z-index: 1000;
+  padding: 4px;
+  min-width: 120px;
+}
+
+.context-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 6px 12px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  font-size: 13px;
+  color: var(--text-color);
+  cursor: pointer;
+}
+
+.context-menu button:hover {
+  background-color: var(--hover-gray);
+}
+
+/* =========================================
+   ダークモード対応
+========================================= */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-color: #1c1c1e;
+    --text-color: #f5f5f7;
+    --secondary-text: #a1a1a6;
+    --border-color: #38383a;
+    --accent-blue: #4da6ff;
+    --link-color-normal: #80bfff;
+    --link-color-hover: #b3d9ff;
+    --hover-gray: #2c2c2e;
+    --active-tab-bg: #3a3a3c;
+    --surface-white: #2c2c2e;
+  }
+
+  #search-container {
+    background: rgba(44, 44, 46, 0.95);
+    border-color: #555;
+  }
+
+  #backdrop mark {
+    background-color: rgba(10, 132, 255, 0.5);
+  }
+
+  .context-menu {
+    background: rgba(44, 44, 46, 0.95);
+  }
+}
