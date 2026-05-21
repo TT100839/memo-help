@@ -128,3 +128,27 @@ body {
   70% { box-shadow: 0 0 0 8px rgba(0, 122, 255, 0); }
   100% { box-shadow: 0 0 0 0 rgba(0, 122, 255, 0); }
 }
+/* --- 強制ライトモード固定（ダークモード対策） --- */
+#demo-window textarea#memo-area,
+#demo-window #tab-container button,
+#demo-window input {
+  background-color: #ffffff !important;
+  color: #1d1d1f !important;
+  color-scheme: light !important;
+  border-color: #d2d2d7 !important;
+}
+
+/* 選択中のタブ（アクティブ）の色 */
+#demo-window #tab-container button.active {
+  background-color: #e5f1ff !important;
+  color: #007aff !important;
+  border-color: #007aff !important;
+}
+
+/* メモエリア全体の背景を白に固定 */
+#demo-window #memo-container,
+#demo-window #header,
+#demo-window #footer {
+  background-color: #ffffff !important;
+  color: #1d1d1f !important;
+}
