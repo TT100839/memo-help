@@ -1,5 +1,52 @@
 const isWindowMode = new URLSearchParams(window.location.search).has("mode") || window.location.pathname.endsWith("mobile.html");
 const isMobileMode = window.location.pathname.endsWith("mobile.html");
+const CHUNK_SIZE = 64 * 1024; // 64KB（安定して最速を出せるサイズ）
+const MAX_BUFFER = 1024 * 1024; // 1MB（これ以上溜まったら送信を一時停止）
+let incomingFile = [];
+let incomingFileInfo = null;
+
+// ファイルを限界速度で送信するコア関数
+async function sendFileAtMaxSpeed(file) {
+  if (!syncDataChannel || syncDataChannel.readyState !== "open") return;
+
+  // 受信側にこれからファイルを送ることをメタデータとして通知
+  syncDataChannel.send(JSON.stringify({
+    type: "file_start",
+    name: file.name,
+    size: file.size,
+    mimeType: file.type
+  }));
+
+  const arrayBuffer = await file.arrayBuffer();
+  let offset = 0;
+
+  // バッファの空きを待ちながら限界まで詰め込む非同期ループ
+  const sendChunk = () => {
+    return new Promise((resolve) => {
+      const push = () => {
+        while (offset < arrayBuffer.byteLength) {
+          if (syncDataChannel.bufferedAmount > MAX_BUFFER) {
+            // バッファが溢れそうになったら一時停止し、空きが出たら再開
+            syncDataChannel.onbufferedamountlow = () => {
+              syncDataChannel.onbufferedamountlow = null;
+              push();
+            };
+            return;
+          }
+          const chunk = arrayBuffer.slice(offset, offset + CHUNK_SIZE);
+          syncDataChannel.send(chunk);
+          offset += CHUNK_SIZE;
+        }
+        resolve();
+      };
+      push();
+    });
+  };
+
+  await sendChunk();
+  // 送信完了の合図
+  syncDataChannel.send(JSON.stringify({ type: "file_end" }));
+}
 if (typeof chrome === "undefined" || !chrome.storage) {
   window.chrome = {
     storage: {
@@ -12,9 +59,44 @@ if (typeof chrome === "undefined" || !chrome.storage) {
   };
 }
 
+function setupDataChannel(dc) {
+  syncDataChannel = dc;
+  dc.binaryType = "arraybuffer"; // 【追記】バイナリデータとして受信する設定
+  // ...既存のコード
+}
+
+// handleSyncMessage関数を拡張してバイナリとメタデータを処理
 function handleSyncMessage(event) {
+  // バイナリデータ（ファイルのチャンク）が届いた場合
+  if (event.data instanceof ArrayBuffer) {
+    incomingFile.push(event.data);
+    return;
+  }
+
   try {
     const data = JSON.parse(event.data);
+    
+    // ファイル送信開始の合図
+    if (data.type === "file_start") {
+      incomingFileInfo = data;
+      incomingFile = [];
+      return;
+    }
+    
+    // ファイル送信完了の合図（組み立てて自動ダウンロード）
+    if (data.type === "file_end" && incomingFileInfo) {
+      const blob = new Blob(incomingFile, { type: incomingFileInfo.mimeType });
+      const url = URL.createObjectURL(blob);
+      
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = incomingFileInfo.name;
+      a.click();
+      
+      incomingFile = [];
+      incomingFileInfo = null;
+      return;
+    }
     // 【修正】data.tabs が存在し、かつ1個以上タブがある場合のみ同期を許可する
     if (data.type === "sync_state" && data.tabs && data.tabs.length > 0) {
       state.tabs = data.tabs;
@@ -90,6 +172,9 @@ const state = {
 };
 let db;
 let syncDataChannel = null;
+let syncPeerConnection = null;
+
+const incomingFiles = {};
 const initDB = () => {
   const req = indexedDB.open("MemoFilesDB", 1);
   req.onupgradeneeded = (e) => {
@@ -796,6 +881,7 @@ window.addEventListener("drop", (e) => {
     const tx = db.transaction("files", "readwrite");
     tx.objectStore("files").put(file, fileTag);
     insertText(fileTag + "\n");
+    sendFileAtMaxSpeed(file);
   }
 });
 els.memoArea.addEventListener("input", () => {
@@ -1022,19 +1108,81 @@ init();
 const WORKER_URL = "https://memo-signaling.tanakasan32400.workers.dev";
 const MOBILE_SITE_URL = "https://tt100839.github.io/memo-help/mobile.html";
 
+// 【修正】setupDataChannel 関数を以下のように書き換えてください
+// 【修正】setupDataChannel 関数を以下に丸ごと差し替えてください
 function setupDataChannel(dc) {
   syncDataChannel = dc;
+  dc.binaryType = "arraybuffer";
   dc.onmessage = handleSyncMessage;
+  
   dc.onopen = () => {
     els.memoArea.placeholder = "";
-    if(!isMobileMode) {
+    els.charCount.style.color = ""; // 再接続時に色をリセット
+    els.memoArea.style.backgroundColor = ""; // 背景色をリセット
+    els.memoArea.readOnly = false; // 入力可能に戻す
+
+    if (!isMobileMode) {
       saveToStorage();
+      const btn = document.getElementById("connect-btn");
+      if(btn) {
+         btn.textContent = "接続中(クリックで切断)";
+         btn.style.backgroundColor = "#4caf50";
+         btn.disabled = false; // 切断操作のためにボタンを有効化
+      }
     }
+  };
+
+  dc.onclose = () => {
+    els.memoArea.placeholder = "通信が切断されました。再接続するにはページを更新してください。";
+    els.charCount.textContent = "【切断済】 " + els.charCount.textContent;
+    els.charCount.style.color = "#f44336"; // 文字数を赤色にする
+
+    if (!isMobileMode) {
+       const btn = document.getElementById("connect-btn");
+       if(btn) {
+           btn.textContent = "スマホ接続(QR)"; // 初期状態に戻す
+           btn.style.backgroundColor = "#34a853";
+           btn.disabled = false;
+       }
+    } else {
+       // スマホ側：背景をグレーにし、これ以上入力できないようにする
+       els.memoArea.style.backgroundColor = "#f5f5f5";
+       els.memoArea.readOnly = true;
+    }
+
+    syncPeerConnection = null;
+    syncDataChannel = null;
+  };
+  
+  dc.onerror = (error) => {
+      console.error("DataChannel Error:", error);
+      dc.close();
   };
 }
 // PC側：ボタンクリックで接続待ち
+// 【修正】document.getElementById("connect-btn").onclick を以下に差し替えてください
 document.getElementById("connect-btn").onclick = async () => {
   const connectBtn = document.getElementById("connect-btn");
+
+  // 【追記】すでに通信が存在する場合は、接続を切断して初期状態に戻す
+  if (syncPeerConnection) {
+    syncPeerConnection.close();
+    syncPeerConnection = null;
+    if (syncDataChannel) {
+      syncDataChannel.close();
+      syncDataChannel = null;
+    }
+    connectBtn.textContent = "スマホ接続(QR)";
+    connectBtn.style.backgroundColor = "#34a853";
+    connectBtn.disabled = false;
+    document.getElementById("qr-container").style.display = "none";
+    els.charCount.style.color = "";
+    els.memoArea.style.backgroundColor = "";
+    els.memoArea.readOnly = false;
+    updateCharCount();
+    return;
+  }
+
   connectBtn.disabled = true;
   connectBtn.textContent = "準備中(1/3)...";
 
@@ -1042,6 +1190,7 @@ document.getElementById("connect-btn").onclick = async () => {
   const connectUrl = MOBILE_SITE_URL + "?id=" + sessionId;
   
   const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
+  syncPeerConnection = pc; // 【追記】切断操作のためにグローバル変数に保存する
   const dc = pc.createDataChannel("memo-channel");
   setupDataChannel(dc);
 
@@ -1050,17 +1199,16 @@ document.getElementById("connect-btn").onclick = async () => {
 
   connectBtn.textContent = "経路探索中(2/3)...";
 
-  // ICE candidateの収集完了を最大2秒だけ待つ（無限ループ防止）
-  await new Promise((resolve) => {
+await new Promise((resolve) => {
     if (pc.iceGatheringState === 'complete') resolve();
     else {
-      const checkState = () => { if (pc.iceGatheringState === 'complete') resolve(); };
-      pc.addEventListener('icegatheringstatechange', checkState);
-      setTimeout(resolve, 2000);
+      pc.addEventListener('icecandidate', (e) => {
+        if (e.candidate) resolve(); // 経路が1つでも見つかれば即座に接続開始
+      });
+      setTimeout(resolve, 500); // 念のためのタイムアウトを超短縮
     }
   });
 
-  // サーバーへOfferをアップロード
   connectBtn.textContent = "サーバー登録中(3/3)...";
   try {
     const res = await fetch(WORKER_URL + "/offer?id=" + sessionId, {
@@ -1071,18 +1219,23 @@ document.getElementById("connect-btn").onclick = async () => {
   } catch (err) {
     connectBtn.textContent = "サーバー接続エラー";
     connectBtn.disabled = false;
+    syncPeerConnection = null;
     return;
   }
 
-  // サーバーへの登録が完了してからQRを画面に出す
   document.getElementById("qr-image").src =
     "https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=" + encodeURIComponent(connectUrl);
   document.getElementById("session-id-text").textContent = "ID: " + sessionId;
   document.getElementById("qr-container").style.display = "block";
-  connectBtn.textContent = "QRをスキャン";
+  connectBtn.textContent = "QRをスキャン(クリックで取消)";
+  connectBtn.disabled = false; // 待機中もクリックでキャンセルできるように有効化
 
-  // スマホからのAnswerを待機
   const pollInterval = setInterval(async () => {
+    // ユーザーが手動で切断した場合はポーリングを停止
+    if (!syncPeerConnection) {
+       clearInterval(pollInterval);
+       return;
+    }
     if (pc.signalingState === "stable") { clearInterval(pollInterval); return; }
     try {
       const res = await fetch(WORKER_URL + "/answer?id=" + sessionId);
@@ -1090,7 +1243,6 @@ document.getElementById("connect-btn").onclick = async () => {
         const answer = await res.json();
         await pc.setRemoteDescription(answer);
         clearInterval(pollInterval);
-        connectBtn.textContent = "接続完了！";
         setTimeout(() => { document.getElementById("qr-container").style.display = "none"; }, 2000);
       }
     } catch(e) {}
