@@ -1032,62 +1032,84 @@ function setupDataChannel(dc) {
     }
   };
 }
-
 // PC側：ボタンクリックで接続待ち
 document.getElementById("connect-btn").onclick = async () => {
   const connectBtn = document.getElementById("connect-btn");
   connectBtn.disabled = true;
-  connectBtn.textContent = "準備中...";
+  connectBtn.textContent = "準備中(1/3)...";
 
   const sessionId = Math.floor(100000 + Math.random() * 900000).toString();
   const connectUrl = MOBILE_SITE_URL + "?id=" + sessionId;
   
-  document.getElementById("qr-image").src =
-    "https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=" + encodeURIComponent(connectUrl);
-  document.getElementById("session-id-text").textContent = "ID: " + sessionId;
-  document.getElementById("qr-container").style.display = "block";
-  connectBtn.textContent = "スキャン待機中...";
-
   const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
   const dc = pc.createDataChannel("memo-channel");
   setupDataChannel(dc);
 
-  pc.onicecandidate = async (event) => {
-    if (event.candidate === null) {
-      await fetch(WORKER_URL + "/offer?id=" + sessionId, {
-        method: "POST",
-        body: JSON.stringify(pc.localDescription),
-      });
-
-      const pollInterval = setInterval(async () => {
-        if (pc.signalingState === "stable") { clearInterval(pollInterval); return; }
-        const res = await fetch(WORKER_URL + "/answer?id=" + sessionId);
-        if (res.ok) {
-          const answer = await res.json();
-          await pc.setRemoteDescription(answer);
-          clearInterval(pollInterval);
-        }
-      }, 2000);
-    }
-  };
-
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
+
+  connectBtn.textContent = "経路探索中(2/3)...";
+
+  // ICE candidateの収集完了を最大2秒だけ待つ（無限ループ防止）
+  await new Promise((resolve) => {
+    if (pc.iceGatheringState === 'complete') resolve();
+    else {
+      const checkState = () => { if (pc.iceGatheringState === 'complete') resolve(); };
+      pc.addEventListener('icegatheringstatechange', checkState);
+      setTimeout(resolve, 2000);
+    }
+  });
+
+  // サーバーへOfferをアップロード
+  connectBtn.textContent = "サーバー登録中(3/3)...";
+  try {
+    const res = await fetch(WORKER_URL + "/offer?id=" + sessionId, {
+      method: "POST",
+      body: JSON.stringify(pc.localDescription),
+    });
+    if (!res.ok) throw new Error("Upload failed");
+  } catch (err) {
+    connectBtn.textContent = "サーバー接続エラー";
+    connectBtn.disabled = false;
+    return;
+  }
+
+  // サーバーへの登録が完了してからQRを画面に出す
+  document.getElementById("qr-image").src =
+    "https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=" + encodeURIComponent(connectUrl);
+  document.getElementById("session-id-text").textContent = "ID: " + sessionId;
+  document.getElementById("qr-container").style.display = "block";
+  connectBtn.textContent = "QRをスキャン";
+
+  // スマホからのAnswerを待機
+  const pollInterval = setInterval(async () => {
+    if (pc.signalingState === "stable") { clearInterval(pollInterval); return; }
+    try {
+      const res = await fetch(WORKER_URL + "/answer?id=" + sessionId);
+      if (res.ok) {
+        const answer = await res.json();
+        await pc.setRemoteDescription(answer);
+        clearInterval(pollInterval);
+        connectBtn.textContent = "接続完了！";
+        setTimeout(() => { document.getElementById("qr-container").style.display = "none"; }, 2000);
+      }
+    } catch(e) {}
+  }, 2000);
 };
 
 // スマホ側：URLのIDから自動接続
-// 【修正】checkMobileConnection 関数を以下のように書き換えてください
 async function checkMobileConnection() {
   const sessionId = new URLSearchParams(window.location.search).get("id");
   if (!sessionId || !window.location.pathname.endsWith("mobile.html")) return;
 
-  els.memoArea.placeholder = "PCと接続を確立中...";
+  els.memoArea.placeholder = "PCと接続を確立中(1/3)...";
   try {
-    // PC側のデータがシグナリングサーバーに届くまで最大10回（20秒間）リトライする
     let res;
+    // PCのアップロードを待つ
     for (let i = 0; i < 10; i++) {
       res = await fetch(WORKER_URL + "/offer?id=" + sessionId);
       if (res.ok) break;
+      els.memoArea.placeholder = `PCと接続を確立中(1/3)... リトライ ${i+1}/10`;
       await new Promise(resolve => setTimeout(resolve, 2000));
     }
 
@@ -1095,22 +1117,34 @@ async function checkMobileConnection() {
       els.memoArea.value = "期限切れです。PC側で再度QRを表示してください";
       return;
     }
+    
+    els.memoArea.placeholder = "経路探索中(2/3)...";
     const offer = await res.json();
     const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
 
     pc.ondatachannel = (e) => { setupDataChannel(e.channel); };
-    pc.onicecandidate = async (e) => {
-      if (e.candidate === null) {
-        await fetch(WORKER_URL + "/answer?id=" + sessionId, {
-          method: "POST",
-          body: JSON.stringify(pc.localDescription)
-        });
-      }
-    };
-
+    
     await pc.setRemoteDescription(offer);
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
+
+    // ICE candidateの収集完了を最大2秒だけ待機
+    await new Promise((resolve) => {
+      if (pc.iceGatheringState === 'complete') resolve();
+      else {
+        const checkState = () => { if (pc.iceGatheringState === 'complete') resolve(); };
+        pc.addEventListener('icegatheringstatechange', checkState);
+        setTimeout(resolve, 2000);
+      }
+    });
+
+    els.memoArea.placeholder = "サーバー登録中(3/3)...";
+    await fetch(WORKER_URL + "/answer?id=" + sessionId, {
+      method: "POST",
+      body: JSON.stringify(pc.localDescription)
+    });
+    
+    els.memoArea.placeholder = "同期完了を待機しています...";
   } catch (err) {
     els.memoArea.value = "通信エラーが発生しました";
   }
