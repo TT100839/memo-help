@@ -1280,7 +1280,7 @@ document.getElementById("connect-btn").onclick = async () => {
       pc.addEventListener("icecandidate", (e) => {
         if (e.candidate) resolve(); // 経路が1つでも見つかれば即座に接続開始
       });
-      setTimeout(resolve, 500); // 念のためのタイムアウトを超短縮
+      setTimeout(resolve, 2000); // 念のためのタイムアウトを超短縮
     }
   });
 
@@ -1369,11 +1369,11 @@ async function checkMobileConnection() {
     await new Promise((resolve) => {
       if (pc.iceGatheringState === "complete") resolve();
       else {
-        const checkState = () => {
-          if (pc.iceGatheringState === "complete") resolve();
-        };
-        pc.addEventListener("icegatheringstatechange", checkState);
-        setTimeout(resolve, 2000);
+        // ★ PC側と同じように、最初の経路が見つかった瞬間に進むように変更
+        pc.addEventListener("icecandidate", (e) => {
+          if (e.candidate) resolve();
+        });
+        setTimeout(resolve, 2000); // 最大で2秒待つ
       }
     });
 
