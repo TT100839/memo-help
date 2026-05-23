@@ -1230,11 +1230,23 @@ function setupDataChannel(dc) {
       els.memoArea.readOnly = true;
     }
 
+    // 過去の受信バッファを強制リセット
+    incomingFile = [];
+    incomingFileInfo = null;
+
+    // リスナーを剥がして強制終了（メモリリーク・混線防止）
     if (syncDataChannel) {
+      syncDataChannel.onopen = null;
+      syncDataChannel.onmessage = null;
+      syncDataChannel.onclose = null;
+      syncDataChannel.onerror = null;
       syncDataChannel.close();
       syncDataChannel = null;
     }
     if (syncPeerConnection) {
+      syncPeerConnection.onicecandidate = null;
+      syncPeerConnection.ondatachannel = null;
+      syncPeerConnection.onconnectionstatechange = null;
       syncPeerConnection.close();
       syncPeerConnection = null;
     }
@@ -1302,18 +1314,30 @@ document.getElementById("connect-btn").onclick = async () => {
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
 
-  connectBtn.textContent = "経路探索中(2/3)...";
+
+connectBtn.textContent = "経路探索中(2/3)...";
 
   await new Promise((resolve) => {
-    if (pc.iceGatheringState === "complete") resolve();
-    else {
-      // ★ 変更：スマホ側と揃えて「経路が1つでも見つかれば即座に進む」ように統一
+    let resolved = false;
+    const finish = () => {
+      if (resolved) return;
+      resolved = true;
+      resolve();
+    };
+
+    if (pc.iceGatheringState === "complete") {
+      finish();
+    } else {
       pc.addEventListener("icecandidate", (e) => {
-        if (e.candidate) resolve(); 
+        if (!e.candidate) finish();
       });
-      setTimeout(resolve, 2000); // 最大で2秒待つ
+      pc.addEventListener("icegatheringstatechange", () => {
+        if (pc.iceGatheringState === "complete") finish();
+      });
+      setTimeout(finish, 7000); // 念のためタイムアウトを7秒に延長
     }
   });
+
 
   connectBtn.textContent = "サーバー登録中(3/3)...";
   try {
@@ -1395,7 +1419,7 @@ async function checkMobileConnection() {
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
 
-    // ICE candidateの収集完了を最大2秒だけ待機
+    // ICE candidateの収集完了を最大7秒だけ待機
     await new Promise((resolve) => {
       if (pc.iceGatheringState === "complete") resolve();
       else {
@@ -1403,7 +1427,7 @@ async function checkMobileConnection() {
         pc.addEventListener("icecandidate", (e) => {
           if (e.candidate) resolve();
         });
-        setTimeout(resolve, 2000); // 最大で2秒待つ
+        setTimeout(resolve, 7000); // 最大で7秒待つ
       }
     });
 
