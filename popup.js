@@ -10,12 +10,12 @@ let incomingFileInfo = null;
 // ファイルを限界速度で送信するコア関数
 // 【修正】sendFileAtMaxSpeed を以下に差し替えてください
 // 【修正】sendFileAtMaxSpeed を以下に差し替えてください
+// 【修正1】sendFileAtMaxSpeed 関数を以下に差し替えてください
 async function sendFileAtMaxSpeed(file, tag, fileName) {
   if (!syncDataChannel || syncDataChannel.readyState !== "open") return;
-
-  // スマホの受信限界を超えないようバッファしきい値を小さく設定
+  
   syncDataChannel.bufferedAmountLowThreshold = 32 * 1024;
-
+  
   syncDataChannel.send(
     JSON.stringify({
       type: "file_start",
@@ -29,23 +29,24 @@ async function sendFileAtMaxSpeed(file, tag, fileName) {
   const arrayBuffer = await file.arrayBuffer();
   let offset = 0;
 
-  // チャンク送信を意図的にペースダウンしてパケットロスと受信側のフリーズを防ぐ
   const sendChunk = async () => {
     while (offset < arrayBuffer.byteLength) {
       if (syncDataChannel.bufferedAmount > 64 * 1024) {
-        await new Promise((resolve) => {
-          syncDataChannel.onbufferedamountlow = () => {
-            syncDataChannel.onbufferedamountlow = null;
-            resolve();
-          };
-        });
+        // バッファが詰まった時のみ待機し、最大1秒で強制的に再開させる（完全停止の防止）
+        await Promise.race([
+          new Promise((resolve) => {
+            syncDataChannel.onbufferedamountlow = () => {
+              syncDataChannel.onbufferedamountlow = null;
+              resolve();
+            };
+          }),
+          new Promise((resolve) => setTimeout(resolve, 300))
+        ]);
       }
-      const chunk = arrayBuffer.slice(offset, offset + 16 * 1024);
+      // 送信サイズを32KBに引き上げてさらに高速化。強制スリープ(5ms)は削除
+      const chunk = arrayBuffer.slice(offset, offset + 32 * 1024);
       syncDataChannel.send(chunk);
-      offset += 16 * 1024;
-
-      // スマホのブラウザが処理を追いつけるように5ミリ秒だけ休む（パケットロス対策）
-      await new Promise((r) => setTimeout(r, 5));
+      offset += 32 * 1024;
     }
   };
 
@@ -416,9 +417,13 @@ function updateFiles() {
       const displayStr = match ? match[1] : fileTag;
 
       // スマホのセキュリティブロックを回避するため、ButtonではなくAタグ（リンク）として生成する
+      // 【修正2】updateFiles 関数内の aタグ生成と getReq.onsuccess 部分を以下に差し替えてください
+
+      // スマホのセキュリティブロックを回避するため、Aタグ（リンク）として生成する
       const a = document.createElement("a");
       a.className = "file-link";
       a.style.textDecoration = "none";
+      a.target = "_blank"; // ★追記：ダウンロードではなく別タブでプレビューさせる
       a.innerHTML = `
         <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" class="link-icon">
           <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path>
@@ -435,11 +440,10 @@ function updateFiles() {
 
       getReq.onsuccess = () => {
         if (getReq.result) {
-          // AタグにあらかじめURLとダウンロード属性をセットしておく（これでネイティブ機能が動く）
           const url = URL.createObjectURL(getReq.result);
-          els.filesArea._blobUrls.push(url); // 解放用に保存
+          els.filesArea._blobUrls.push(url);
           a.href = url;
-          a.download = displayStr;
+          // ★削除：a.download = displayStr; を消すことで即閉じを防ぐ
         } else {
           a.onclick = (e) => {
             e.preventDefault();
@@ -1163,12 +1167,13 @@ const MOBILE_SITE_URL = "https://tt100839.github.io/memo-help/mobile.html";
 
 // 【修正】setupDataChannel 関数を以下のように書き換えてください
 // 【修正】setupDataChannel 関数を以下に丸ごと差し替えてください
+// 【修正3】setupDataChannel 関数を以下に差し替えてください
 function setupDataChannel(dc) {
   syncDataChannel = dc;
   dc.binaryType = "arraybuffer";
   dc.onmessage = handleSyncMessage;
 
-  const onOpenHandler = async () => {
+  dc.onopen = () => { // ★ asyncを削除（UI更新をブロックさせないため）
     els.memoArea.placeholder = "";
     els.charCount.style.color = "";
     els.memoArea.style.backgroundColor = "";
@@ -1176,49 +1181,46 @@ function setupDataChannel(dc) {
 
     if (!isMobileMode) {
       saveToStorage();
-      if (db) {
-        const allText = state.tabs.map((t) => t.text).join("");
-        const tx = db.transaction("files", "readonly");
-        tx.objectStore("files").getAllKeys().onsuccess = async (e) => {
-          const keys = e.target.result;
-          const activeFiles = keys.filter((k) => allText.includes(k));
-
-          for (const tag of activeFiles) {
-            const fileData = await new Promise((resolve) => {
-              const req = db
-                .transaction("files", "readonly")
-                .objectStore("files")
-                .get(tag);
-              req.onsuccess = (ev) => resolve(ev.target.result);
-              req.onerror = () => resolve(null);
-            });
-            if (fileData) {
-              await sendFileAtMaxSpeed(
-                fileData,
-                tag,
-                fileData.name || "shared_file",
-              );
-            }
-          }
-        };
-      }
+      
+      // ★ ファイル送信を待たずに、先にUIを「接続中」に切り替えて同期完了を示す
       const btn = document.getElementById("connect-btn");
       if (btn) {
         btn.textContent = "接続中(クリックで切断)";
         btn.style.backgroundColor = "#4caf50";
         btn.disabled = false;
       }
-    } else {
-      if (syncDataChannel.readyState === "open") {
-        syncDataChannel.send(JSON.stringify({ type: "sync_request" }));
+
+      if (db) {
+        // ★ 既存ファイルの送信はバックグラウンド処理として非同期で走らせる
+        setTimeout(async () => {
+          const allText = state.tabs.map((t) => t.text).join("");
+          const tx = db.transaction("files", "readonly");
+          tx.objectStore("files").getAllKeys().onsuccess = async (e) => {
+            const keys = e.target.result;
+            const activeFiles = keys.filter((k) => allText.includes(k));
+
+            for (const tag of activeFiles) {
+              const fileData = await new Promise((resolve) => {
+                const req = db
+                  .transaction("files", "readonly")
+                  .objectStore("files")
+                  .get(tag);
+                req.onsuccess = (ev) => resolve(ev.target.result);
+                req.onerror = () => resolve(null);
+              });
+              if (fileData) {
+                await sendFileAtMaxSpeed(
+                  fileData,
+                  tag,
+                  fileData.name || "shared_file",
+                );
+              }
+            }
+          };
+        }, 100);
       }
     }
   };
-
-  dc.onopen = onOpenHandler;
-  if (dc.readyState === "open") {
-    onOpenHandler();
-  }
 
   dc.onclose = () => {
     els.memoArea.placeholder =
