@@ -9,15 +9,18 @@ let incomingFileInfo = null;
 
 // ファイルを限界速度で送信するコア関数
 // 【修正】sendFileAtMaxSpeed を以下に差し替えてください
+// 【修正】sendFileAtMaxSpeed を以下に差し替えてください
 async function sendFileAtMaxSpeed(file, tag, fileName) {
   if (!syncDataChannel || syncDataChannel.readyState !== "open") return;
-  syncDataChannel.bufferedAmountLowThreshold = MAX_BUFFER / 2;
-  // 受信側にタグ名も含めて通知
+  
+  // スマホの受信限界を超えないようバッファしきい値を小さく設定
+  syncDataChannel.bufferedAmountLowThreshold = 32 * 1024;
+  
   syncDataChannel.send(
     JSON.stringify({
       type: "file_start",
       name: fileName || file.name,
-      tag: tag, // 【追記】一意のタグ名を送信
+      tag: tag,
       size: file.size,
       mimeType: file.type,
     }),
@@ -26,25 +29,24 @@ async function sendFileAtMaxSpeed(file, tag, fileName) {
   const arrayBuffer = await file.arrayBuffer();
   let offset = 0;
 
-  const sendChunk = () => {
-    return new Promise((resolve) => {
-      const push = () => {
-        while (offset < arrayBuffer.byteLength) {
-          if (syncDataChannel.bufferedAmount > MAX_BUFFER) {
-            syncDataChannel.onbufferedamountlow = () => {
-              syncDataChannel.onbufferedamountlow = null;
-              push();
-            };
-            return;
-          }
-          const chunk = arrayBuffer.slice(offset, offset + CHUNK_SIZE);
-          syncDataChannel.send(chunk);
-          offset += CHUNK_SIZE;
-        }
-        resolve();
-      };
-      push();
-    });
+  // チャンク送信を意図的にペースダウンしてパケットロスと受信側のフリーズを防ぐ
+  const sendChunk = async () => {
+    while (offset < arrayBuffer.byteLength) {
+      if (syncDataChannel.bufferedAmount > 64 * 1024) {
+        await new Promise((resolve) => {
+          syncDataChannel.onbufferedamountlow = () => {
+            syncDataChannel.onbufferedamountlow = null;
+            resolve();
+          };
+        });
+      }
+      const chunk = arrayBuffer.slice(offset, offset + 16 * 1024);
+      syncDataChannel.send(chunk);
+      offset += 16 * 1024;
+      
+      // スマホのブラウザが処理を追いつけるように5ミリ秒だけ休む（パケットロス対策）
+      await new Promise(r => setTimeout(r, 5));
+    }
   };
 
   await sendChunk();
@@ -67,6 +69,13 @@ function handleSyncMessage(event) {
   // バイナリデータ（ファイルのチャンク）が届いた場合
   if (event.data instanceof ArrayBuffer) {
     incomingFile.push(event.data);
+    
+    // 【追記】受信進捗を背景テキストとして表示（止まっていないか可視化する）
+    if (incomingFileInfo && incomingFileInfo.size > 0) {
+      const received = incomingFile.length * (16 * 1024);
+      const percent = Math.min(100, Math.floor((received / incomingFileInfo.size) * 100));
+      els.memoArea.placeholder = `[${incomingFileInfo.name}] を受信中... ${percent}%`;
+    }
     return;
   }
 
@@ -74,30 +83,29 @@ function handleSyncMessage(event) {
     const data = JSON.parse(event.data);
 
     // ファイル送信開始の合図
-    // 【修正】handleSyncMessage 関数内のファイル開始・終了の処理を以下に差し替えてください
-
-    // ファイル送信開始の合図
     if (data.type === "file_start") {
       incomingFileInfo = data;
       incomingFile = [];
-      els.memoArea.placeholder = `[${data.name}] を受信中...`; // 進行状況を背景に表示
+      els.memoArea.placeholder = `[${data.name}] の受信を開始... 0%`;
       return;
     }
 
     // ファイル送信完了の合図（受け取ったデータをDBに保存する）
     if (data.type === "file_end" && incomingFileInfo) {
-      els.memoArea.placeholder = `ファイルを保存中...`;
+      els.memoArea.placeholder = `ファイルを構築・保存中...`;
       const blob = new Blob(incomingFile, { type: incomingFileInfo.mimeType });
       
       if (db) {
         const tx = db.transaction("files", "readwrite");
         tx.objectStore("files").put(blob, incomingFileInfo.tag);
+        
         tx.oncomplete = () => {
           els.memoArea.placeholder = ""; // 完了したら文字を消す
           updateFiles(); // UIを更新して欄に表示させる
         };
-        tx.onerror = () => {
-          els.memoArea.placeholder = "ファイルの保存に失敗しました";
+        tx.onerror = (e) => {
+          els.memoArea.placeholder = "保存エラー: スマホの容量制限等により失敗しました";
+          console.error("DB Save Error:", e);
         };
       }
       
@@ -363,6 +371,7 @@ function updateLinks() {
     els.linksArea.appendChild(a);
   });
 }
+// 【修正】updateFiles 関数を以下に丸ごと差し替えてください
 function updateFiles() {
   if (!els.filesArea || !db) return;
 
@@ -370,8 +379,14 @@ function updateFiles() {
   const req = tx.objectStore("files").getAllKeys();
 
   req.onsuccess = () => {
+    // メモリリーク防止：前回のBlob URLを破棄してスマホの動作を軽くする
+    if (els.filesArea._blobUrls) {
+      els.filesArea._blobUrls.forEach((url) => URL.revokeObjectURL(url));
+    }
+    els.filesArea._blobUrls = [];
+
     els.filesArea.innerHTML = "";
-    const keys = req.result; // DBに保存された "[ファイル名.pdf]" などの配列
+    const keys = req.result;
     const currentText = els.memoArea.value;
 
     // 現在のテキスト内に存在するファイルタグのみを抽出
@@ -389,13 +404,14 @@ function updateFiles() {
     els.filesArea.appendChild(label);
 
     activeFiles.forEach((fileTag) => {
-      // [ファイル名](file) から角括弧の中身だけを抽出
       const match = fileTag.match(/\[(.*?)\]/);
       const displayStr = match ? match[1] : fileTag;
 
-      const btn = document.createElement("button");
-      btn.className = "file-link";
-      btn.innerHTML = `
+      // スマホのセキュリティブロックを回避するため、ButtonではなくAタグ（リンク）として生成する
+      const a = document.createElement("a");
+      a.className = "file-link";
+      a.style.textDecoration = "none";
+      a.innerHTML = `
         <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" class="link-icon">
           <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path>
           <polyline points="13 2 13 9 20 9"></polyline>
@@ -403,37 +419,28 @@ function updateFiles() {
         <span class="link-text">${displayStr}</span>
       `;
 
-      // 【修正】updateFiles 関数内の btn.onclick = (e) => { ... } を以下に丸ごと差し替えてください
+      // 裏側でデータベースからファイルを読み込む
+      const getReq = db
+        .transaction("files", "readonly")
+        .objectStore("files")
+        .get(fileTag);
 
-      btn.onclick = (e) => {
-        e.preventDefault();
-        
-        // 1. クリックと同時に「空の別タブ」を先に開く（スマホのポップアップブロック対策）
-        const newTab = window.open("", "_blank");
-        if (!newTab) {
-          alert("ポップアップがブロックされました。ブラウザの設定で許可してください。");
-          return;
+      getReq.onsuccess = () => {
+        if (getReq.result) {
+          // AタグにあらかじめURLとダウンロード属性をセットしておく（これでネイティブ機能が動く）
+          const url = URL.createObjectURL(getReq.result);
+          els.filesArea._blobUrls.push(url); // 解放用に保存
+          a.href = url;
+          a.download = displayStr;
+        } else {
+          a.onclick = (e) => {
+            e.preventDefault();
+            alert("ファイルデータが見つかりません");
+          };
         }
-
-        // 2. 裏側でデータベースからファイルを読み込む
-        const getReq = db
-          .transaction("files", "readonly")
-          .objectStore("files")
-          .get(fileTag);
-          
-        getReq.onsuccess = () => {
-          if (getReq.result) {
-            const url = URL.createObjectURL(getReq.result);
-            // 3. 準備ができたら、先ほど開いた別タブのURLを書き換えてファイルを表示させる
-            newTab.location.href = url;
-            setTimeout(() => URL.revokeObjectURL(url), 10000);
-          } else {
-            newTab.close(); // ファイルが存在しない場合は空タブを閉じる
-          }
-        };
-        getReq.onerror = () => newTab.close();
       };
-      els.filesArea.appendChild(btn);
+
+      els.filesArea.appendChild(a);
     });
   };
 }
