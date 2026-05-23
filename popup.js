@@ -69,17 +69,11 @@ if (typeof chrome === "undefined" || !chrome.storage) {
 
 // handleSyncMessage関数を拡張してバイナリとメタデータを処理
 function handleSyncMessage(event) {
-  // バイナリデータ（ファイルのチャンク）が届いた場合
   if (event.data instanceof ArrayBuffer) {
     incomingFile.push(event.data);
-
-    // 【追記】受信進捗を背景テキストとして表示（止まっていないか可視化する）
     if (incomingFileInfo && incomingFileInfo.size > 0) {
       const received = incomingFile.length * (16 * 1024);
-      const percent = Math.min(
-        100,
-        Math.floor((received / incomingFileInfo.size) * 100),
-      );
+      const percent = Math.min(100, Math.floor((received / incomingFileInfo.size) * 100));
       els.memoArea.placeholder = `[${incomingFileInfo.name}] を受信中... ${percent}%`;
     }
     return;
@@ -88,7 +82,6 @@ function handleSyncMessage(event) {
   try {
     const data = JSON.parse(event.data);
 
-    // ファイル送信開始の合図
     if (data.type === "file_start") {
       incomingFileInfo = data;
       incomingFile = [];
@@ -96,36 +89,44 @@ function handleSyncMessage(event) {
       return;
     }
 
-    // ファイル送信完了の合図（受け取ったデータをDBに保存する）
     if (data.type === "file_end" && incomingFileInfo) {
       els.memoArea.placeholder = `ファイルを構築・保存中...`;
       const blob = new Blob(incomingFile, { type: incomingFileInfo.mimeType });
-
+      
       if (db) {
         const tx = db.transaction("files", "readwrite");
         tx.objectStore("files").put(blob, incomingFileInfo.tag);
-
+        
         tx.oncomplete = () => {
-          els.memoArea.placeholder = ""; // 完了したら文字を消す
-          updateFiles(); // UIを更新して欄に表示させる
+          els.memoArea.placeholder = "";
+          updateFiles();
         };
         tx.onerror = (e) => {
-          els.memoArea.placeholder =
-            "保存エラー: スマホの容量制限等により失敗しました";
+          els.memoArea.placeholder = "保存エラー: スマホの容量制限等により失敗しました";
           console.error("DB Save Error:", e);
         };
       }
-
+      
       incomingFile = [];
       incomingFileInfo = null;
       return;
     }
+    
     if (data.type === "sync_request" && !isMobileMode) {
       saveToStorage();
       return;
     }
+    
     if (data.type === "sync_state" && data.tabs && data.tabs.length > 0) {
-      els.memoArea.placeholder = ""; // 待機メッセージを強制的に消去
+      // 外部からの同期時に変更があればシンプルに履歴を保存する
+      const currentTab = state.tabs.find((t) => t.id === state.activeTabId);
+      const newTab = data.tabs.find((t) => t.id === data.activeTabId);
+      
+      if (currentTab && newTab && currentTab.text !== newTab.text) {
+        pushSnapshot();
+      }
+
+      els.memoArea.placeholder = "";
       state.tabs = data.tabs;
       state.activeTabId = data.activeTabId;
 
@@ -135,20 +136,15 @@ function handleSyncMessage(event) {
       }
 
       if (data.searchVisible !== undefined) {
-        els.searchContainer.style.display = data.searchVisible
-          ? "flex"
-          : "none";
+        els.searchContainer.style.display = data.searchVisible ? "flex" : "none";
       }
-      if (
-        data.searchValue !== undefined &&
-        els.searchInput.value !== data.searchValue
-      ) {
+      if (data.searchValue !== undefined && els.searchInput.value !== data.searchValue) {
         els.searchInput.value = data.searchValue;
       }
 
       renderTabs();
       updateVisuals();
-      if (!window.location.pathname.endsWith("mobile.html")) {
+      if (!isMobileMode) {
         chrome.storage.local.set({
           tabs: state.tabs,
           activeTabId: state.activeTabId,
@@ -1161,16 +1157,12 @@ init();
 const WORKER_URL = "https://memo-signaling.tanakasan32400.workers.dev";
 const MOBILE_SITE_URL = "https://tt100839.github.io/memo-help/mobile.html";
 
-// 【修正】setupDataChannel 関数を以下のように書き換えてください
-// 【修正】setupDataChannel 関数を以下に丸ごと差し替えてください
-// 【修正3】setupDataChannel 関数を以下に差し替えてください
-// 【修正】setupDataChannel 関数を以下に丸ごと差し替えてください
 function setupDataChannel(dc) {
   syncDataChannel = dc;
   dc.binaryType = "arraybuffer";
   dc.onmessage = handleSyncMessage;
 
-  dc.onopen = () => { // ★ async を削除しUI更新を優先させる
+  const onOpenHandler = async () => {
     els.memoArea.placeholder = "";
     els.charCount.style.color = "";
     els.memoArea.style.backgroundColor = "";
@@ -1178,49 +1170,47 @@ function setupDataChannel(dc) {
 
     if (!isMobileMode) {
       saveToStorage();
-      
+      if (db) {
+        const allText = state.tabs.map((t) => t.text).join("");
+        const tx = db.transaction("files", "readonly");
+        tx.objectStore("files").getAllKeys().onsuccess = async (e) => {
+          const keys = e.target.result;
+          const activeFiles = keys.filter((k) => allText.includes(k));
+
+          for (const tag of activeFiles) {
+            const fileData = await new Promise((resolve) => {
+              const req = db.transaction("files", "readonly").objectStore("files").get(tag);
+              req.onsuccess = (ev) => resolve(ev.target.result);
+              req.onerror = () => resolve(null);
+            });
+            if (fileData) {
+              await sendFileAtMaxSpeed(fileData, tag, fileData.name || "shared_file");
+            }
+          }
+        };
+      }
       const btn = document.getElementById("connect-btn");
       if (btn) {
         btn.textContent = "接続中(クリックで切断)";
         btn.style.backgroundColor = "#4caf50";
         btn.disabled = false;
       }
-
-      if (db) {
-        // ★ 既存ファイルの送信はバックグラウンド処理として非同期で走らせる
-        setTimeout(async () => {
-          const allText = state.tabs.map((t) => t.text).join("");
-          const tx = db.transaction("files", "readonly");
-          tx.objectStore("files").getAllKeys().onsuccess = async (e) => {
-            const keys = e.target.result;
-            const activeFiles = keys.filter((k) => allText.includes(k));
-
-            for (const tag of activeFiles) {
-              const fileData = await new Promise((resolve) => {
-                const req = db
-                  .transaction("files", "readonly")
-                  .objectStore("files")
-                  .get(tag);
-                req.onsuccess = (ev) => resolve(ev.target.result);
-                req.onerror = () => resolve(null);
-              });
-              if (fileData) {
-                await sendFileAtMaxSpeed(
-                  fileData,
-                  tag,
-                  fileData.name || "shared_file",
-                );
-              }
-            }
-          };
-        }, 100);
+    } else {
+      if (syncDataChannel.readyState === "open") {
+        syncDataChannel.send(JSON.stringify({ type: "sync_request" }));
       }
     }
   };
 
-  dc.onclose = () => {
-    els.memoArea.placeholder =
-      "通信が切断されました。再接続するにはページを更新してください。";
+  dc.onopen = onOpenHandler;
+  if (dc.readyState === "open") {
+    onOpenHandler();
+  }
+
+  const oncloseHandler = () => {
+    if (!syncPeerConnection && !syncDataChannel) return;
+
+    els.memoArea.placeholder = "通信が切断されました。再接続するにはページを更新するかPC側で再度接続操作を行ってください";
     els.charCount.textContent = "【切断済】 " + els.charCount.textContent;
     els.charCount.style.color = "#f44336";
 
@@ -1236,13 +1226,30 @@ function setupDataChannel(dc) {
       els.memoArea.readOnly = true;
     }
 
-    syncPeerConnection = null;
-    syncDataChannel = null;
+    if (syncDataChannel) {
+      syncDataChannel.close();
+      syncDataChannel = null;
+    }
+    if (syncPeerConnection) {
+      syncPeerConnection.close();
+      syncPeerConnection = null;
+    }
   };
+
+  dc.onclose = oncloseHandler;
+
+  if (syncPeerConnection) {
+    syncPeerConnection.addEventListener('connectionstatechange', () => {
+      const state = syncPeerConnection.connectionState;
+      if (state === 'disconnected' || state === 'failed' || state === 'closed') {
+        oncloseHandler();
+      }
+    });
+  }
 
   dc.onerror = (error) => {
     console.error("DataChannel Error:", error);
-    dc.close();
+    oncloseHandler();
   };
 }
 // PC側：ボタンクリックで接続待ち
