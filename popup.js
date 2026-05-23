@@ -11,6 +11,8 @@ let incomingFileInfo = null;
 // 【修正】sendFileAtMaxSpeed を以下に差し替えてください
 // 【修正】sendFileAtMaxSpeed を以下に差し替えてください
 // 【修正1】sendFileAtMaxSpeed 関数を以下に差し替えてください
+// 【修正】sendFileAtMaxSpeed 関数を以下に丸ごと差し替えてください
+// 【修正】sendFileAtMaxSpeed 関数を以下に丸ごと差し替えてください
 async function sendFileAtMaxSpeed(file, tag, fileName) {
   if (!syncDataChannel || syncDataChannel.readyState !== "open") return;
   
@@ -32,7 +34,7 @@ async function sendFileAtMaxSpeed(file, tag, fileName) {
   const sendChunk = async () => {
     while (offset < arrayBuffer.byteLength) {
       if (syncDataChannel.bufferedAmount > 64 * 1024) {
-        // バッファが詰まった時のみ待機し、最大1秒で強制的に再開させる（完全停止の防止）
+        // バッファが詰まった時のみ待機し、最大1秒で強制的に再開させる
         await Promise.race([
           new Promise((resolve) => {
             syncDataChannel.onbufferedamountlow = () => {
@@ -40,10 +42,10 @@ async function sendFileAtMaxSpeed(file, tag, fileName) {
               resolve();
             };
           }),
-          new Promise((resolve) => setTimeout(resolve, 300))
+          new Promise((resolve) => setTimeout(resolve, 1000))
         ]);
       }
-      // 送信サイズを32KBに引き上げてさらに高速化。強制スリープ(5ms)は削除
+      // 送信サイズを32KBに引き上げてさらに高速化
       const chunk = arrayBuffer.slice(offset, offset + 32 * 1024);
       syncDataChannel.send(chunk);
       offset += 32 * 1024;
@@ -381,6 +383,7 @@ function updateLinks() {
   });
 }
 // 【修正】updateFiles 関数を以下に丸ごと差し替えてください
+// 【修正】updateFiles 関数を以下に丸ごと差し替えてください
 function updateFiles() {
   if (!els.filesArea || !db) return;
 
@@ -388,7 +391,6 @@ function updateFiles() {
   const req = tx.objectStore("files").getAllKeys();
 
   req.onsuccess = () => {
-    // メモリリーク防止：前回のBlob URLを破棄してスマホの動作を軽くする
     if (els.filesArea._blobUrls) {
       els.filesArea._blobUrls.forEach((url) => URL.revokeObjectURL(url));
     }
@@ -398,7 +400,6 @@ function updateFiles() {
     const keys = req.result;
     const currentText = els.memoArea.value;
 
-    // 現在のテキスト内に存在するファイルタグのみを抽出
     const activeFiles = keys.filter((key) => currentText.includes(key));
 
     if (!activeFiles.length) {
@@ -416,14 +417,10 @@ function updateFiles() {
       const match = fileTag.match(/\[(.*?)\]/);
       const displayStr = match ? match[1] : fileTag;
 
-      // スマホのセキュリティブロックを回避するため、ButtonではなくAタグ（リンク）として生成する
-      // 【修正2】updateFiles 関数内の aタグ生成と getReq.onsuccess 部分を以下に差し替えてください
-
-      // スマホのセキュリティブロックを回避するため、Aタグ（リンク）として生成する
       const a = document.createElement("a");
       a.className = "file-link";
       a.style.textDecoration = "none";
-      a.target = "_blank"; // ★追記：ダウンロードではなく別タブでプレビューさせる
+      a.target = "_blank"; // ★ダウンロードではなく別タブでプレビューさせる
       a.innerHTML = `
         <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" class="link-icon">
           <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path>
@@ -432,7 +429,6 @@ function updateFiles() {
         <span class="link-text">${displayStr}</span>
       `;
 
-      // 裏側でデータベースからファイルを読み込む
       const getReq = db
         .transaction("files", "readonly")
         .objectStore("files")
@@ -443,7 +439,7 @@ function updateFiles() {
           const url = URL.createObjectURL(getReq.result);
           els.filesArea._blobUrls.push(url);
           a.href = url;
-          // ★削除：a.download = displayStr; を消すことで即閉じを防ぐ
+          // ★a.download 指定を削除して即閉じを防止
         } else {
           a.onclick = (e) => {
             e.preventDefault();
@@ -1168,12 +1164,13 @@ const MOBILE_SITE_URL = "https://tt100839.github.io/memo-help/mobile.html";
 // 【修正】setupDataChannel 関数を以下のように書き換えてください
 // 【修正】setupDataChannel 関数を以下に丸ごと差し替えてください
 // 【修正3】setupDataChannel 関数を以下に差し替えてください
+// 【修正】setupDataChannel 関数を以下に丸ごと差し替えてください
 function setupDataChannel(dc) {
   syncDataChannel = dc;
   dc.binaryType = "arraybuffer";
   dc.onmessage = handleSyncMessage;
 
-  dc.onopen = () => { // ★ asyncを削除（UI更新をブロックさせないため）
+  dc.onopen = () => { // ★ async を削除しUI更新を優先させる
     els.memoArea.placeholder = "";
     els.charCount.style.color = "";
     els.memoArea.style.backgroundColor = "";
@@ -1182,7 +1179,6 @@ function setupDataChannel(dc) {
     if (!isMobileMode) {
       saveToStorage();
       
-      // ★ ファイル送信を待たずに、先にUIを「接続中」に切り替えて同期完了を示す
       const btn = document.getElementById("connect-btn");
       if (btn) {
         btn.textContent = "接続中(クリックで切断)";
