@@ -204,6 +204,30 @@ const state = {
 let db;
 let syncDataChannel = null;
 let syncPeerConnection = null;
+let signalingPollInterval = null;
+function disconnectSync() {
+  if (signalingPollInterval) {
+    clearInterval(signalingPollInterval);
+    signalingPollInterval = null;
+  }
+  if (syncDataChannel) {
+    syncDataChannel.onopen = null;
+    syncDataChannel.onmessage = null;
+    syncDataChannel.onclose = null;
+    syncDataChannel.onerror = null;
+    syncDataChannel.close();
+    syncDataChannel = null;
+  }
+  if (syncPeerConnection) {
+    syncPeerConnection.onicecandidate = null;
+    syncPeerConnection.ondatachannel = null;
+    syncPeerConnection.onconnectionstatechange = null;
+    syncPeerConnection.close();
+    syncPeerConnection = null;
+  }
+  incomingFile = [];
+  incomingFileInfo = null;
+}
 
 const incomingFiles = {};
 const initDB = () => {
@@ -1211,11 +1235,13 @@ function setupDataChannel(dc) {
     onOpenHandler();
   }
 
-  const oncloseHandler = () => {
-    if (!syncPeerConnection && !syncDataChannel) return;
+// 【修正】setupDataChannel 関数内の oncloseHandler を以下に差し替えてください
 
+  const oncloseHandler = () => {
     els.memoArea.placeholder = "通信が切断されました。再接続するにはページを更新するかPC側で再度接続操作を行ってください";
-    els.charCount.textContent = "【切断済】 " + els.charCount.textContent;
+    if (!els.charCount.textContent.includes("切断済")) {
+        els.charCount.textContent = "【切断済】 " + els.charCount.textContent;
+    }
     els.charCount.style.color = "#f44336";
 
     if (!isMobileMode) {
@@ -1230,26 +1256,8 @@ function setupDataChannel(dc) {
       els.memoArea.readOnly = true;
     }
 
-    // 過去の受信バッファを強制リセット
-    incomingFile = [];
-    incomingFileInfo = null;
-
-    // リスナーを剥がして強制終了（メモリリーク・混線防止）
-    if (syncDataChannel) {
-      syncDataChannel.onopen = null;
-      syncDataChannel.onmessage = null;
-      syncDataChannel.onclose = null;
-      syncDataChannel.onerror = null;
-      syncDataChannel.close();
-      syncDataChannel = null;
-    }
-    if (syncPeerConnection) {
-      syncPeerConnection.onicecandidate = null;
-      syncPeerConnection.ondatachannel = null;
-      syncPeerConnection.onconnectionstatechange = null;
-      syncPeerConnection.close();
-      syncPeerConnection = null;
-    }
+    // ★ 複雑だった破棄処理を、先ほど作った関数で一発で確実に仕留める
+    disconnectSync();
   };
 
   dc.onclose = oncloseHandler;
@@ -1270,23 +1278,13 @@ function setupDataChannel(dc) {
     oncloseHandler();
   };
 }
-// PC側：ボタンクリックで接続待ち
-// 【修正】document.getElementById("connect-btn").onclick を以下に差し替えてください
-// 【修正2】document.getElementById("connect-btn").onclick を以下に丸ごと差し替えてください
+// 【修正】document.getElementById("connect-btn").onclick を以下に丸ごと差し替えてください
 document.getElementById("connect-btn").onclick = async () => {
   const connectBtn = document.getElementById("connect-btn");
 
-  // ★ 追記：再接続時に過去のファイル受信バッファのゴミをリセット
-  incomingFile = [];
-  incomingFileInfo = null;
-
-  if (syncPeerConnection) {
-    syncPeerConnection.close();
-    syncPeerConnection = null;
-    if (syncDataChannel) {
-      syncDataChannel.close();
-      syncDataChannel = null;
-    }
+  // ★ 既存の通信があれば完全に破棄して初期状態に戻す
+  if (syncPeerConnection || syncDataChannel) {
+    disconnectSync();
     connectBtn.textContent = "スマホ接続(QR)";
     connectBtn.style.backgroundColor = "#34a853";
     connectBtn.disabled = false;
@@ -1314,8 +1312,7 @@ document.getElementById("connect-btn").onclick = async () => {
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
 
-
-connectBtn.textContent = "経路探索中(2/3)...";
+  connectBtn.textContent = "経路探索中(2/3)...";
 
   await new Promise((resolve) => {
     let resolved = false;
@@ -1329,15 +1326,14 @@ connectBtn.textContent = "経路探索中(2/3)...";
       finish();
     } else {
       pc.addEventListener("icecandidate", (e) => {
-        if (!e.candidate) finish();
+        if (e.candidate) finish(); // ★ タイポ（!e.candidate）を修正！これでスマホ側とタイミングが完全に合います
       });
       pc.addEventListener("icegatheringstatechange", () => {
         if (pc.iceGatheringState === "complete") finish();
       });
-      setTimeout(finish, 7000); // 念のためタイムアウトを7秒に延長
+      setTimeout(finish, 7000); 
     }
   });
-
 
   connectBtn.textContent = "サーバー登録中(3/3)...";
   try {
@@ -1349,7 +1345,7 @@ connectBtn.textContent = "経路探索中(2/3)...";
   } catch (err) {
     connectBtn.textContent = "サーバー接続エラー";
     connectBtn.disabled = false;
-    syncPeerConnection = null;
+    disconnectSync();
     return;
   }
 
@@ -1361,13 +1357,15 @@ connectBtn.textContent = "経路探索中(2/3)...";
   connectBtn.textContent = "QRをスキャン(クリックで取消)";
   connectBtn.disabled = false;
 
-  const pollInterval = setInterval(async () => {
-    if (!syncPeerConnection) {
-      clearInterval(pollInterval);
+  // ★ ポーリングをグローバル変数で管理し、重複起動やゾンビ化を絶対に防ぐ
+  signalingPollInterval = setInterval(async () => {
+    // 自分が監視しているPCオブジェクトが破棄されていたら安全に終了
+    if (!syncPeerConnection || pc.signalingState === "closed") {
+      clearInterval(signalingPollInterval);
       return;
     }
     if (pc.signalingState === "stable") {
-      clearInterval(pollInterval);
+      clearInterval(signalingPollInterval);
       return;
     }
     try {
@@ -1375,9 +1373,10 @@ connectBtn.textContent = "経路探索中(2/3)...";
       if (res.ok) {
         const answer = await res.json();
         await pc.setRemoteDescription(answer);
-        clearInterval(pollInterval);
+        clearInterval(signalingPollInterval);
         setTimeout(() => {
-          document.getElementById("qr-container").style.display = "none";
+          const qr = document.getElementById("qr-container");
+          if(qr) qr.style.display = "none";
         }, 2000);
       }
     } catch (e) {}
