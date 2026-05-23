@@ -12,10 +12,10 @@ let incomingFileInfo = null;
 // 【修正】sendFileAtMaxSpeed を以下に差し替えてください
 async function sendFileAtMaxSpeed(file, tag, fileName) {
   if (!syncDataChannel || syncDataChannel.readyState !== "open") return;
-  
+
   // スマホの受信限界を超えないようバッファしきい値を小さく設定
   syncDataChannel.bufferedAmountLowThreshold = 32 * 1024;
-  
+
   syncDataChannel.send(
     JSON.stringify({
       type: "file_start",
@@ -43,9 +43,9 @@ async function sendFileAtMaxSpeed(file, tag, fileName) {
       const chunk = arrayBuffer.slice(offset, offset + 16 * 1024);
       syncDataChannel.send(chunk);
       offset += 16 * 1024;
-      
+
       // スマホのブラウザが処理を追いつけるように5ミリ秒だけ休む（パケットロス対策）
-      await new Promise(r => setTimeout(r, 5));
+      await new Promise((r) => setTimeout(r, 5));
     }
   };
 
@@ -69,11 +69,14 @@ function handleSyncMessage(event) {
   // バイナリデータ（ファイルのチャンク）が届いた場合
   if (event.data instanceof ArrayBuffer) {
     incomingFile.push(event.data);
-    
+
     // 【追記】受信進捗を背景テキストとして表示（止まっていないか可視化する）
     if (incomingFileInfo && incomingFileInfo.size > 0) {
       const received = incomingFile.length * (16 * 1024);
-      const percent = Math.min(100, Math.floor((received / incomingFileInfo.size) * 100));
+      const percent = Math.min(
+        100,
+        Math.floor((received / incomingFileInfo.size) * 100),
+      );
       els.memoArea.placeholder = `[${incomingFileInfo.name}] を受信中... ${percent}%`;
     }
     return;
@@ -94,27 +97,32 @@ function handleSyncMessage(event) {
     if (data.type === "file_end" && incomingFileInfo) {
       els.memoArea.placeholder = `ファイルを構築・保存中...`;
       const blob = new Blob(incomingFile, { type: incomingFileInfo.mimeType });
-      
+
       if (db) {
         const tx = db.transaction("files", "readwrite");
         tx.objectStore("files").put(blob, incomingFileInfo.tag);
-        
+
         tx.oncomplete = () => {
           els.memoArea.placeholder = ""; // 完了したら文字を消す
           updateFiles(); // UIを更新して欄に表示させる
         };
         tx.onerror = (e) => {
-          els.memoArea.placeholder = "保存エラー: スマホの容量制限等により失敗しました";
+          els.memoArea.placeholder =
+            "保存エラー: スマホの容量制限等により失敗しました";
           console.error("DB Save Error:", e);
         };
       }
-      
+
       incomingFile = [];
       incomingFileInfo = null;
       return;
     }
-    // 【修正】data.tabs が存在し、かつ1個以上タブがある場合のみ同期を許可する
+    if (data.type === "sync_request" && !isMobileMode) {
+      saveToStorage();
+      return;
+    }
     if (data.type === "sync_state" && data.tabs && data.tabs.length > 0) {
+      els.memoArea.placeholder = ""; // 待機メッセージを強制的に消去
       state.tabs = data.tabs;
       state.activeTabId = data.activeTabId;
 
@@ -1160,8 +1168,7 @@ function setupDataChannel(dc) {
   dc.binaryType = "arraybuffer";
   dc.onmessage = handleSyncMessage;
 
-  dc.onopen = async () => {
-    // ★ async を追加
+  const onOpenHandler = async () => {
     els.memoArea.placeholder = "";
     els.charCount.style.color = "";
     els.memoArea.style.backgroundColor = "";
@@ -1173,11 +1180,9 @@ function setupDataChannel(dc) {
         const allText = state.tabs.map((t) => t.text).join("");
         const tx = db.transaction("files", "readonly");
         tx.objectStore("files").getAllKeys().onsuccess = async (e) => {
-          // ★ async を追加
           const keys = e.target.result;
           const activeFiles = keys.filter((k) => allText.includes(k));
 
-          // ★ forEachではなく for...of を使って「絶対に1つずつ順番に」送信する
           for (const tag of activeFiles) {
             const fileData = await new Promise((resolve) => {
               const req = db
@@ -1203,24 +1208,32 @@ function setupDataChannel(dc) {
         btn.style.backgroundColor = "#4caf50";
         btn.disabled = false;
       }
+    } else {
+      if (syncDataChannel.readyState === "open") {
+        syncDataChannel.send(JSON.stringify({ type: "sync_request" }));
+      }
     }
   };
+
+  dc.onopen = onOpenHandler;
+  if (dc.readyState === "open") {
+    onOpenHandler();
+  }
 
   dc.onclose = () => {
     els.memoArea.placeholder =
       "通信が切断されました。再接続するにはページを更新してください。";
     els.charCount.textContent = "【切断済】 " + els.charCount.textContent;
-    els.charCount.style.color = "#f44336"; // 文字数を赤色にする
+    els.charCount.style.color = "#f44336";
 
     if (!isMobileMode) {
       const btn = document.getElementById("connect-btn");
       if (btn) {
-        btn.textContent = "スマホ接続(QR)"; // 初期状態に戻す
+        btn.textContent = "スマホ接続(QR)";
         btn.style.backgroundColor = "#34a853";
         btn.disabled = false;
       }
     } else {
-      // スマホ側：背景をグレーにし、これ以上入力できないようにする
       els.memoArea.style.backgroundColor = "#f5f5f5";
       els.memoArea.readOnly = true;
     }
@@ -1280,9 +1293,9 @@ document.getElementById("connect-btn").onclick = async () => {
     if (pc.iceGatheringState === "complete") resolve();
     else {
       pc.addEventListener("icecandidate", (e) => {
-        if (e.candidate) resolve(); // 経路が1つでも見つかれば即座に接続開始
+        if (!e.candidate) resolve(); // 経路候補の収集完了まで待つ
       });
-      setTimeout(resolve, 2000); // 念のためのタイムアウトを超短縮
+      setTimeout(resolve, 3000); // タイムアウトを3秒に延長
     }
   });
 
