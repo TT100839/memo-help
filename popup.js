@@ -922,6 +922,7 @@ window.addEventListener("drop", async (e) => {
     const fileTag = getUniqueFileTag(file.name);
     const tx = db.transaction("files", "readwrite");
     tx.objectStore("files").put(file, fileTag);
+    tx.oncomplete = () => updateFiles(); // ★保存完了後に欄を更新する
     insertText(fileTag + "\n");
     await sendFileAtMaxSpeed(file, fileTag, file.name);
   }
@@ -1122,6 +1123,7 @@ els.fileBtn.onclick = () => {
       const fileTag = getUniqueFileTag(file.name);
       const tx = db.transaction("files", "readwrite");
       tx.objectStore("files").put(file, fileTag);
+      tx.oncomplete = () => updateFiles();
       insertText(fileTag + "\n");
       await sendFileAtMaxSpeed(file, fileTag, file.name);
     }
