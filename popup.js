@@ -1,4 +1,6 @@
-const isWindowMode = new URLSearchParams(window.location.search).has("mode") || window.location.pathname.endsWith("mobile.html");
+const isWindowMode =
+  new URLSearchParams(window.location.search).has("mode") ||
+  window.location.pathname.endsWith("mobile.html");
 const isMobileMode = window.location.pathname.endsWith("mobile.html");
 const CHUNK_SIZE = 64 * 1024; // 64KB（安定して最速を出せるサイズ）
 const MAX_BUFFER = 1024 * 1024; // 1MB（これ以上溜まったら送信を一時停止）
@@ -9,15 +11,17 @@ let incomingFileInfo = null;
 // 【修正】sendFileAtMaxSpeed を以下に差し替えてください
 async function sendFileAtMaxSpeed(file, tag, fileName) {
   if (!syncDataChannel || syncDataChannel.readyState !== "open") return;
-
+  syncDataChannel.bufferedAmountLowThreshold = MAX_BUFFER / 2;
   // 受信側にタグ名も含めて通知
-  syncDataChannel.send(JSON.stringify({
-    type: "file_start",
-    name: fileName || file.name,
-    tag: tag, // 【追記】一意のタグ名を送信
-    size: file.size,
-    mimeType: file.type
-  }));
+  syncDataChannel.send(
+    JSON.stringify({
+      type: "file_start",
+      name: fileName || file.name,
+      tag: tag, // 【追記】一意のタグ名を送信
+      size: file.size,
+      mimeType: file.type,
+    }),
+  );
 
   const arrayBuffer = await file.arrayBuffer();
   let offset = 0;
@@ -50,18 +54,12 @@ if (typeof chrome === "undefined" || !chrome.storage) {
   window.chrome = {
     storage: {
       local: { get: (k, cb) => cb({}), set: () => {} },
-      onChanged: { addListener: () => {} }
+      onChanged: { addListener: () => {} },
     },
     windows: { getLastFocused: () => {}, create: () => {} },
     tabs: { query: () => {}, create: (o) => window.open(o.url, "_blank") },
-    runtime: { getURL: (p) => p }
+    runtime: { getURL: (p) => p },
   };
-}
-
-function setupDataChannel(dc) {
-  syncDataChannel = dc;
-  dc.binaryType = "arraybuffer"; // 【追記】バイナリデータとして受信する設定
-  // ...既存のコード
 }
 
 // handleSyncMessage関数を拡張してバイナリとメタデータを処理
@@ -74,20 +72,20 @@ function handleSyncMessage(event) {
 
   try {
     const data = JSON.parse(event.data);
-    
+
     // ファイル送信開始の合図
     if (data.type === "file_start") {
       incomingFileInfo = data;
       incomingFile = [];
       return;
     }
-    
+
     // 【修正】handleSyncMessage 関数内のファイル終了判定部分を以下のように書き換えてください
 
     // ファイル送信完了の合図（受け取ったデータをDBに保存する）
     if (data.type === "file_end" && incomingFileInfo) {
       const blob = new Blob(incomingFile, { type: incomingFileInfo.mimeType });
-      
+
       // 【追記】受信したファイルを相手と同じタグ名でローカルDBに保存
       if (db) {
         const tx = db.transaction("files", "readwrite");
@@ -96,7 +94,7 @@ function handleSyncMessage(event) {
           updateFiles(); // DB保存完了後にファイルUIを更新（欄に表示させる）
         };
       }
-      
+
       incomingFile = [];
       incomingFileInfo = null;
       return;
@@ -105,26 +103,34 @@ function handleSyncMessage(event) {
     if (data.type === "sync_state" && data.tabs && data.tabs.length > 0) {
       state.tabs = data.tabs;
       state.activeTabId = data.activeTabId;
-      
+
       const t = state.tabs.find((t) => t.id === state.activeTabId);
       if (els.memoArea.value !== (t ? t.text : "")) {
         els.memoArea.value = t ? t.text : "";
       }
-      
+
       if (data.searchVisible !== undefined) {
-        els.searchContainer.style.display = data.searchVisible ? "flex" : "none";
+        els.searchContainer.style.display = data.searchVisible
+          ? "flex"
+          : "none";
       }
-      if (data.searchValue !== undefined && els.searchInput.value !== data.searchValue) {
+      if (
+        data.searchValue !== undefined &&
+        els.searchInput.value !== data.searchValue
+      ) {
         els.searchInput.value = data.searchValue;
       }
 
       renderTabs();
       updateVisuals();
       if (!window.location.pathname.endsWith("mobile.html")) {
-        chrome.storage.local.set({ tabs: state.tabs, activeTabId: state.activeTabId });
+        chrome.storage.local.set({
+          tabs: state.tabs,
+          activeTabId: state.activeTabId,
+        });
       }
     }
-  } catch(e) {}
+  } catch (e) {}
 }
 const els = {
   memoArea: document.getElementById("memo-area"),
@@ -293,13 +299,15 @@ function saveToStorage() {
     });
   }
   if (syncDataChannel?.readyState === "open") {
-    syncDataChannel.send(JSON.stringify({
-      type: "sync_state",
-      tabs: state.tabs,
-      activeTabId: state.activeTabId,
-      searchVisible: els.searchContainer.style.display === "flex",
-      searchValue: els.searchInput.value
-    }));
+    syncDataChannel.send(
+      JSON.stringify({
+        type: "sync_state",
+        tabs: state.tabs,
+        activeTabId: state.activeTabId,
+        searchVisible: els.searchContainer.style.display === "flex",
+        searchValue: els.searchInput.value,
+      }),
+    );
   }
 }
 
@@ -389,7 +397,8 @@ function updateFiles() {
         <span class="link-text">${displayStr}</span>
       `;
 
-      btn.onclick = () => {
+      btn.onclick = (e) => {
+        e.preventDefault();
         const getReq = db
           .transaction("files", "readonly")
           .objectStore("files")
@@ -397,7 +406,13 @@ function updateFiles() {
         getReq.onsuccess = () => {
           if (getReq.result) {
             const url = URL.createObjectURL(getReq.result);
-            window.open(url, "_blank");
+            // 【修正】スマホのポップアップブロックを回避する方式に変更
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = displayStr; // ファイル名を指定してダウンロードさせる
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
             setTimeout(() => URL.revokeObjectURL(url), 10000);
           }
         };
@@ -876,8 +891,8 @@ els.menuAddRight.onclick = () => {
 els.menuRemove.onclick = () => {
   removeTabById(state.contextTargetId);
 };
-window.addEventListener("dragover", (e) => e.preventDefault());
-window.addEventListener("drop", (e) => {
+window.addEventListener("dragover", async (e) => e.preventDefault());
+window.addEventListener("drop", async (e) => {
   e.preventDefault();
   if (!db || !e.dataTransfer.files.length) return;
   for (const file of e.dataTransfer.files) {
@@ -885,7 +900,7 @@ window.addEventListener("drop", (e) => {
     const tx = db.transaction("files", "readwrite");
     tx.objectStore("files").put(file, fileTag);
     insertText(fileTag + "\n");
-    sendFileAtMaxSpeed(file, fileTag, file.name)
+    await sendFileAtMaxSpeed(file, fileTag, file.name);
   }
 });
 els.memoArea.addEventListener("input", () => {
@@ -1078,14 +1093,14 @@ els.fileBtn.onclick = () => {
   const input = document.createElement("input");
   input.type = "file";
   input.multiple = true;
-  input.onchange = () => {
+  input.onchange = async () => {
     if (!db || !input.files.length) return;
     for (const file of input.files) {
       const fileTag = getUniqueFileTag(file.name);
       const tx = db.transaction("files", "readwrite");
       tx.objectStore("files").put(file, fileTag);
       insertText(fileTag + "\n");
-      sendFileAtMaxSpeed(file, fileTag, file.name);
+      await sendFileAtMaxSpeed(file, fileTag, file.name);
     }
   };
   input.click();
@@ -1119,66 +1134,79 @@ function setupDataChannel(dc) {
   syncDataChannel = dc;
   dc.binaryType = "arraybuffer";
   dc.onmessage = handleSyncMessage;
-  
-  dc.onopen = () => {
+
+  dc.onopen = async () => {
+    // ★ async を追加
     els.memoArea.placeholder = "";
-    els.charCount.style.color = ""; // 再接続時に色をリセット
-    els.memoArea.style.backgroundColor = ""; // 背景色をリセット
-    els.memoArea.readOnly = false; // 入力可能に戻す
+    els.charCount.style.color = "";
+    els.memoArea.style.backgroundColor = "";
+    els.memoArea.readOnly = false;
 
     if (!isMobileMode) {
       saveToStorage();
       if (db) {
-        // 現在の全タブのテキストを結合
         const allText = state.tabs.map((t) => t.text).join("");
         const tx = db.transaction("files", "readonly");
-        tx.objectStore("files").getAllKeys().onsuccess = (e) => {
+        tx.objectStore("files").getAllKeys().onsuccess = async (e) => {
+          // ★ async を追加
           const keys = e.target.result;
-          // テキスト内で現在使われているファイルタグだけを抽出して送信
-          keys.filter(k => allText.includes(k)).forEach(tag => {
-            db.transaction("files", "readonly").objectStore("files").get(tag).onsuccess = async (ev) => {
-              const fileData = ev.target.result;
-              if (fileData) {
-                await sendFileAtMaxSpeed(fileData, tag, fileData.name || "shared_file");
-              }
-            };
-          });
+          const activeFiles = keys.filter((k) => allText.includes(k));
+
+          // ★ forEachではなく for...of を使って「絶対に1つずつ順番に」送信する
+          for (const tag of activeFiles) {
+            const fileData = await new Promise((resolve) => {
+              const req = db
+                .transaction("files", "readonly")
+                .objectStore("files")
+                .get(tag);
+              req.onsuccess = (ev) => resolve(ev.target.result);
+              req.onerror = () => resolve(null);
+            });
+            if (fileData) {
+              await sendFileAtMaxSpeed(
+                fileData,
+                tag,
+                fileData.name || "shared_file",
+              );
+            }
+          }
         };
       }
       const btn = document.getElementById("connect-btn");
-      if(btn) {
-         btn.textContent = "接続中(クリックで切断)";
-         btn.style.backgroundColor = "#4caf50";
-         btn.disabled = false; // 切断操作のためにボタンを有効化
+      if (btn) {
+        btn.textContent = "接続中(クリックで切断)";
+        btn.style.backgroundColor = "#4caf50";
+        btn.disabled = false;
       }
     }
   };
 
   dc.onclose = () => {
-    els.memoArea.placeholder = "通信が切断されました。再接続するにはページを更新してください。";
+    els.memoArea.placeholder =
+      "通信が切断されました。再接続するにはページを更新してください。";
     els.charCount.textContent = "【切断済】 " + els.charCount.textContent;
     els.charCount.style.color = "#f44336"; // 文字数を赤色にする
 
     if (!isMobileMode) {
-       const btn = document.getElementById("connect-btn");
-       if(btn) {
-           btn.textContent = "スマホ接続(QR)"; // 初期状態に戻す
-           btn.style.backgroundColor = "#34a853";
-           btn.disabled = false;
-       }
+      const btn = document.getElementById("connect-btn");
+      if (btn) {
+        btn.textContent = "スマホ接続(QR)"; // 初期状態に戻す
+        btn.style.backgroundColor = "#34a853";
+        btn.disabled = false;
+      }
     } else {
-       // スマホ側：背景をグレーにし、これ以上入力できないようにする
-       els.memoArea.style.backgroundColor = "#f5f5f5";
-       els.memoArea.readOnly = true;
+      // スマホ側：背景をグレーにし、これ以上入力できないようにする
+      els.memoArea.style.backgroundColor = "#f5f5f5";
+      els.memoArea.readOnly = true;
     }
 
     syncPeerConnection = null;
     syncDataChannel = null;
   };
-  
+
   dc.onerror = (error) => {
-      console.error("DataChannel Error:", error);
-      dc.close();
+    console.error("DataChannel Error:", error);
+    dc.close();
   };
 }
 // PC側：ボタンクリックで接続待ち
@@ -1210,8 +1238,10 @@ document.getElementById("connect-btn").onclick = async () => {
 
   const sessionId = Math.floor(100000 + Math.random() * 900000).toString();
   const connectUrl = MOBILE_SITE_URL + "?id=" + sessionId;
-  
-  const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
+
+  const pc = new RTCPeerConnection({
+    iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+  });
   syncPeerConnection = pc; // 【追記】切断操作のためにグローバル変数に保存する
   const dc = pc.createDataChannel("memo-channel");
   setupDataChannel(dc);
@@ -1221,10 +1251,10 @@ document.getElementById("connect-btn").onclick = async () => {
 
   connectBtn.textContent = "経路探索中(2/3)...";
 
-await new Promise((resolve) => {
-    if (pc.iceGatheringState === 'complete') resolve();
+  await new Promise((resolve) => {
+    if (pc.iceGatheringState === "complete") resolve();
     else {
-      pc.addEventListener('icecandidate', (e) => {
+      pc.addEventListener("icecandidate", (e) => {
         if (e.candidate) resolve(); // 経路が1つでも見つかれば即座に接続開始
       });
       setTimeout(resolve, 500); // 念のためのタイムアウトを超短縮
@@ -1246,7 +1276,8 @@ await new Promise((resolve) => {
   }
 
   document.getElementById("qr-image").src =
-    "https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=" + encodeURIComponent(connectUrl);
+    "https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=" +
+    encodeURIComponent(connectUrl);
   document.getElementById("session-id-text").textContent = "ID: " + sessionId;
   document.getElementById("qr-container").style.display = "block";
   connectBtn.textContent = "QRをスキャン(クリックで取消)";
@@ -1255,19 +1286,24 @@ await new Promise((resolve) => {
   const pollInterval = setInterval(async () => {
     // ユーザーが手動で切断した場合はポーリングを停止
     if (!syncPeerConnection) {
-       clearInterval(pollInterval);
-       return;
+      clearInterval(pollInterval);
+      return;
     }
-    if (pc.signalingState === "stable") { clearInterval(pollInterval); return; }
+    if (pc.signalingState === "stable") {
+      clearInterval(pollInterval);
+      return;
+    }
     try {
       const res = await fetch(WORKER_URL + "/answer?id=" + sessionId);
       if (res.ok) {
         const answer = await res.json();
         await pc.setRemoteDescription(answer);
         clearInterval(pollInterval);
-        setTimeout(() => { document.getElementById("qr-container").style.display = "none"; }, 2000);
+        setTimeout(() => {
+          document.getElementById("qr-container").style.display = "none";
+        }, 2000);
       }
-    } catch(e) {}
+    } catch (e) {}
   }, 2000);
 };
 
@@ -1283,31 +1319,37 @@ async function checkMobileConnection() {
     for (let i = 0; i < 10; i++) {
       res = await fetch(WORKER_URL + "/offer?id=" + sessionId);
       if (res.ok) break;
-      els.memoArea.placeholder = `PCと接続を確立中(1/3)... リトライ ${i+1}/10`;
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      els.memoArea.placeholder = `PCと接続を確立中(1/3)... リトライ ${i + 1}/10`;
+      await new Promise((resolve) => setTimeout(resolve, 2000));
     }
 
     if (!res || !res.ok) {
       els.memoArea.value = "期限切れです。PC側で再度QRを表示してください";
       return;
     }
-    
+
     els.memoArea.placeholder = "経路探索中(2/3)...";
     const offer = await res.json();
-    const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
+    const pc = new RTCPeerConnection({
+      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+    });
 
-    pc.ondatachannel = (e) => { setupDataChannel(e.channel); };
-    
+    pc.ondatachannel = (e) => {
+      setupDataChannel(e.channel);
+    };
+
     await pc.setRemoteDescription(offer);
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
 
     // ICE candidateの収集完了を最大2秒だけ待機
     await new Promise((resolve) => {
-      if (pc.iceGatheringState === 'complete') resolve();
+      if (pc.iceGatheringState === "complete") resolve();
       else {
-        const checkState = () => { if (pc.iceGatheringState === 'complete') resolve(); };
-        pc.addEventListener('icegatheringstatechange', checkState);
+        const checkState = () => {
+          if (pc.iceGatheringState === "complete") resolve();
+        };
+        pc.addEventListener("icegatheringstatechange", checkState);
         setTimeout(resolve, 2000);
       }
     });
@@ -1315,9 +1357,9 @@ async function checkMobileConnection() {
     els.memoArea.placeholder = "サーバー登録中(3/3)...";
     await fetch(WORKER_URL + "/answer?id=" + sessionId, {
       method: "POST",
-      body: JSON.stringify(pc.localDescription)
+      body: JSON.stringify(pc.localDescription),
     });
-    
+
     els.memoArea.placeholder = "同期完了を待機しています...";
   } catch (err) {
     els.memoArea.value = "通信エラーが発生しました";
