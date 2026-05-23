@@ -1157,6 +1157,7 @@ init();
 const WORKER_URL = "https://memo-signaling.tanakasan32400.workers.dev";
 const MOBILE_SITE_URL = "https://tt100839.github.io/memo-help/mobile.html";
 
+// 【修正1】setupDataChannel 関数を以下に丸ごと差し替えてください
 function setupDataChannel(dc) {
   syncDataChannel = dc;
   dc.binaryType = "arraybuffer";
@@ -1171,23 +1172,26 @@ function setupDataChannel(dc) {
     if (!isMobileMode) {
       saveToStorage();
       if (db) {
-        const allText = state.tabs.map((t) => t.text).join("");
-        const tx = db.transaction("files", "readonly");
-        tx.objectStore("files").getAllKeys().onsuccess = async (e) => {
-          const keys = e.target.result;
-          const activeFiles = keys.filter((k) => allText.includes(k));
+        // ★ 変更：ファイルの一斉送信を接続完了から「1秒後」に遅らせ、テキスト同期との衝突・クラッシュを防ぐ
+        setTimeout(async () => {
+          const allText = state.tabs.map((t) => t.text).join("");
+          const tx = db.transaction("files", "readonly");
+          tx.objectStore("files").getAllKeys().onsuccess = async (e) => {
+            const keys = e.target.result;
+            const activeFiles = keys.filter((k) => allText.includes(k));
 
-          for (const tag of activeFiles) {
-            const fileData = await new Promise((resolve) => {
-              const req = db.transaction("files", "readonly").objectStore("files").get(tag);
-              req.onsuccess = (ev) => resolve(ev.target.result);
-              req.onerror = () => resolve(null);
-            });
-            if (fileData) {
-              await sendFileAtMaxSpeed(fileData, tag, fileData.name || "shared_file");
+            for (const tag of activeFiles) {
+              const fileData = await new Promise((resolve) => {
+                const req = db.transaction("files", "readonly").objectStore("files").get(tag);
+                req.onsuccess = (ev) => resolve(ev.target.result);
+                req.onerror = () => resolve(null);
+              });
+              if (fileData) {
+                await sendFileAtMaxSpeed(fileData, tag, fileData.name || "shared_file");
+              }
             }
-          }
-        };
+          };
+        }, 1000); // 1000msの待機
       }
       const btn = document.getElementById("connect-btn");
       if (btn) {
@@ -1240,6 +1244,8 @@ function setupDataChannel(dc) {
 
   if (syncPeerConnection) {
     syncPeerConnection.addEventListener('connectionstatechange', () => {
+      // ★ 追記：切断済みの場合はエラーを出さないようにガード
+      if (!syncPeerConnection) return;
       const state = syncPeerConnection.connectionState;
       if (state === 'disconnected' || state === 'failed' || state === 'closed') {
         oncloseHandler();
@@ -1254,10 +1260,14 @@ function setupDataChannel(dc) {
 }
 // PC側：ボタンクリックで接続待ち
 // 【修正】document.getElementById("connect-btn").onclick を以下に差し替えてください
+// 【修正2】document.getElementById("connect-btn").onclick を以下に丸ごと差し替えてください
 document.getElementById("connect-btn").onclick = async () => {
   const connectBtn = document.getElementById("connect-btn");
 
-  // 【追記】すでに通信が存在する場合は、接続を切断して初期状態に戻す
+  // ★ 追記：再接続時に過去のファイル受信バッファのゴミをリセット
+  incomingFile = [];
+  incomingFileInfo = null;
+
   if (syncPeerConnection) {
     syncPeerConnection.close();
     syncPeerConnection = null;
@@ -1285,7 +1295,7 @@ document.getElementById("connect-btn").onclick = async () => {
   const pc = new RTCPeerConnection({
     iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
   });
-  syncPeerConnection = pc; // 【追記】切断操作のためにグローバル変数に保存する
+  syncPeerConnection = pc;
   const dc = pc.createDataChannel("memo-channel");
   setupDataChannel(dc);
 
@@ -1297,10 +1307,11 @@ document.getElementById("connect-btn").onclick = async () => {
   await new Promise((resolve) => {
     if (pc.iceGatheringState === "complete") resolve();
     else {
+      // ★ 変更：スマホ側と揃えて「経路が1つでも見つかれば即座に進む」ように統一
       pc.addEventListener("icecandidate", (e) => {
-        if (!e.candidate) resolve(); // 経路候補の収集完了まで待つ
+        if (e.candidate) resolve(); 
       });
-      setTimeout(resolve, 3000); // タイムアウトを3秒に延長
+      setTimeout(resolve, 2000); // 最大で2秒待つ
     }
   });
 
@@ -1324,10 +1335,9 @@ document.getElementById("connect-btn").onclick = async () => {
   document.getElementById("session-id-text").textContent = "ID: " + sessionId;
   document.getElementById("qr-container").style.display = "block";
   connectBtn.textContent = "QRをスキャン(クリックで取消)";
-  connectBtn.disabled = false; // 待機中もクリックでキャンセルできるように有効化
+  connectBtn.disabled = false;
 
   const pollInterval = setInterval(async () => {
-    // ユーザーが手動で切断した場合はポーリングを停止
     if (!syncPeerConnection) {
       clearInterval(pollInterval);
       return;
