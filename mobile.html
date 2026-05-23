@@ -5,17 +5,50 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <link rel="stylesheet" href="popup.css" />
     <style>
-      /* スマホ全画面にフィットさせる設定 */
-      html, body { width: 100vw; height: 100vh; margin: 0; padding: 12px 16px; box-sizing: border-box; overflow: hidden; }
+      /* スマホ全画面にフィットさせつつ、内容が溢れたらスクロール可能にする設定 */
+      html, body { 
+        width: 100vw; 
+        min-height: 100dvh; /* 画面の高さの最小値を確保 */
+        height: auto; 
+        margin: 0; 
+        padding: 12px 16px; 
+        box-sizing: border-box; 
+        overflow-y: auto; /* ★ hiddenからautoに変更して縦スクロールを許可 */
+        overflow-x: hidden;
+      }
       body { display: flex; flex-direction: column; }
-      #memo-container { flex: 1; display: flex; flex-direction: column; width: 100%; position: relative; }
+      
+      #memo-container { 
+        flex: 1 1 auto; 
+        min-height: 250px; /* ★ メモエリアが潰れすぎないよう最低限の高さを確保 */
+        display: flex; 
+        flex-direction: column; 
+        width: 100%; 
+        position: relative; 
+      }
       #memo-area { flex: 1; width: 100% !important; max-width: none !important; height: 100% !important; max-height: none !important; resize: none !important; }
       
-      /* スマホ接続用QRやエクスポートなど、スマホ単体で確実に不要なボタンのみ非表示にする */
+      /* スマホ接続用QRなど、スマホ単体で不要なボタンを非表示 */
       #connect-btn, 
       #qr-container{ 
         display: none !important; 
       }
+
+      /* ★ 今後の広告スペース用の設定（追加） */
+      #ad-container {
+        width: 100%;
+        height: 50px; /* モバイルバナー広告の標準的な高さ */
+        background-color: #f5f5f7;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        margin-top: 16px;
+        color: #86868b;
+        font-size: 12px;
+        border-radius: 8px;
+        flex-shrink: 0;
+      }
+    </style>
     </style>
   </head>
   <body>
@@ -105,6 +138,9 @@
 
     <div id="links-area"></div>
     <div id="files-area" style="display: none;"></div>
+    <div id="ad-container">
+      <span>広告スペース（予定）</span>
+    </div>
 <div id="tab-context-menu" class="context-menu" style="display: none;">
       <button id="menu-duplicate-tab">
         <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
