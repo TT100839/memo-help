@@ -2,8 +2,8 @@ const isWindowMode =
   new URLSearchParams(window.location.search).has("mode") ||
   window.location.pathname.endsWith("mobile.html");
 const isMobileMode = window.location.pathname.endsWith("mobile.html");
-const CHUNK_SIZE = 64 * 1024; // 64KB（安定して最速を出せるサイズ）
-const MAX_BUFFER = 1024 * 1024; // 1MB（これ以上溜まったら送信を一時停止）
+const CHUNK_SIZE = 16 * 1024; // 64KB（安定して最速を出せるサイズ）
+const MAX_BUFFER = 256 * 1024; // 1MB（これ以上溜まったら送信を一時停止）
 let incomingFile = [];
 let incomingFileInfo = null;
 
@@ -74,27 +74,33 @@ function handleSyncMessage(event) {
     const data = JSON.parse(event.data);
 
     // ファイル送信開始の合図
+    // 【修正】handleSyncMessage 関数内のファイル開始・終了の処理を以下に差し替えてください
+
+    // ファイル送信開始の合図
     if (data.type === "file_start") {
       incomingFileInfo = data;
       incomingFile = [];
+      els.memoArea.placeholder = `[${data.name}] を受信中...`; // 進行状況を背景に表示
       return;
     }
 
-    // 【修正】handleSyncMessage 関数内のファイル終了判定部分を以下のように書き換えてください
-
     // ファイル送信完了の合図（受け取ったデータをDBに保存する）
     if (data.type === "file_end" && incomingFileInfo) {
+      els.memoArea.placeholder = `ファイルを保存中...`;
       const blob = new Blob(incomingFile, { type: incomingFileInfo.mimeType });
-
-      // 【追記】受信したファイルを相手と同じタグ名でローカルDBに保存
+      
       if (db) {
         const tx = db.transaction("files", "readwrite");
         tx.objectStore("files").put(blob, incomingFileInfo.tag);
         tx.oncomplete = () => {
-          updateFiles(); // DB保存完了後にファイルUIを更新（欄に表示させる）
+          els.memoArea.placeholder = ""; // 完了したら文字を消す
+          updateFiles(); // UIを更新して欄に表示させる
+        };
+        tx.onerror = () => {
+          els.memoArea.placeholder = "ファイルの保存に失敗しました";
         };
       }
-
+      
       incomingFile = [];
       incomingFileInfo = null;
       return;
@@ -397,25 +403,35 @@ function updateFiles() {
         <span class="link-text">${displayStr}</span>
       `;
 
+      // 【修正】updateFiles 関数内の btn.onclick = (e) => { ... } を以下に丸ごと差し替えてください
+
       btn.onclick = (e) => {
         e.preventDefault();
+        
+        // 1. クリックと同時に「空の別タブ」を先に開く（スマホのポップアップブロック対策）
+        const newTab = window.open("", "_blank");
+        if (!newTab) {
+          alert("ポップアップがブロックされました。ブラウザの設定で許可してください。");
+          return;
+        }
+
+        // 2. 裏側でデータベースからファイルを読み込む
         const getReq = db
           .transaction("files", "readonly")
           .objectStore("files")
           .get(fileTag);
+          
         getReq.onsuccess = () => {
           if (getReq.result) {
             const url = URL.createObjectURL(getReq.result);
-            // 【修正】スマホのポップアップブロックを回避する方式に変更
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = displayStr; // ファイル名を指定してダウンロードさせる
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
+            // 3. 準備ができたら、先ほど開いた別タブのURLを書き換えてファイルを表示させる
+            newTab.location.href = url;
             setTimeout(() => URL.revokeObjectURL(url), 10000);
+          } else {
+            newTab.close(); // ファイルが存在しない場合は空タブを閉じる
           }
         };
+        getReq.onerror = () => newTab.close();
       };
       els.filesArea.appendChild(btn);
     });
