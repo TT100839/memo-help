@@ -6,13 +6,15 @@ let incomingFile = [];
 let incomingFileInfo = null;
 
 // ファイルを限界速度で送信するコア関数
-async function sendFileAtMaxSpeed(file) {
+// 【修正】sendFileAtMaxSpeed を以下に差し替えてください
+async function sendFileAtMaxSpeed(file, tag, fileName) {
   if (!syncDataChannel || syncDataChannel.readyState !== "open") return;
 
-  // 受信側にこれからファイルを送ることをメタデータとして通知
+  // 受信側にタグ名も含めて通知
   syncDataChannel.send(JSON.stringify({
     type: "file_start",
-    name: file.name,
+    name: fileName || file.name,
+    tag: tag, // 【追記】一意のタグ名を送信
     size: file.size,
     mimeType: file.type
   }));
@@ -20,13 +22,11 @@ async function sendFileAtMaxSpeed(file) {
   const arrayBuffer = await file.arrayBuffer();
   let offset = 0;
 
-  // バッファの空きを待ちながら限界まで詰め込む非同期ループ
   const sendChunk = () => {
     return new Promise((resolve) => {
       const push = () => {
         while (offset < arrayBuffer.byteLength) {
           if (syncDataChannel.bufferedAmount > MAX_BUFFER) {
-            // バッファが溢れそうになったら一時停止し、空きが出たら再開
             syncDataChannel.onbufferedamountlow = () => {
               syncDataChannel.onbufferedamountlow = null;
               push();
@@ -44,7 +44,6 @@ async function sendFileAtMaxSpeed(file) {
   };
 
   await sendChunk();
-  // 送信完了の合図
   syncDataChannel.send(JSON.stringify({ type: "file_end" }));
 }
 if (typeof chrome === "undefined" || !chrome.storage) {
@@ -83,15 +82,20 @@ function handleSyncMessage(event) {
       return;
     }
     
-    // ファイル送信完了の合図（組み立てて自動ダウンロード）
+    // 【修正】handleSyncMessage 関数内のファイル終了判定部分を以下のように書き換えてください
+
+    // ファイル送信完了の合図（受け取ったデータをDBに保存する）
     if (data.type === "file_end" && incomingFileInfo) {
       const blob = new Blob(incomingFile, { type: incomingFileInfo.mimeType });
-      const url = URL.createObjectURL(blob);
       
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = incomingFileInfo.name;
-      a.click();
+      // 【追記】受信したファイルを相手と同じタグ名でローカルDBに保存
+      if (db) {
+        const tx = db.transaction("files", "readwrite");
+        tx.objectStore("files").put(blob, incomingFileInfo.tag);
+        tx.oncomplete = () => {
+          updateFiles(); // DB保存完了後にファイルUIを更新（欄に表示させる）
+        };
+      }
       
       incomingFile = [];
       incomingFileInfo = null;
@@ -881,7 +885,7 @@ window.addEventListener("drop", (e) => {
     const tx = db.transaction("files", "readwrite");
     tx.objectStore("files").put(file, fileTag);
     insertText(fileTag + "\n");
-    sendFileAtMaxSpeed(file);
+    sendFileAtMaxSpeed(file, fileTag, file.name)
   }
 });
 els.memoArea.addEventListener("input", () => {
@@ -1081,6 +1085,7 @@ els.fileBtn.onclick = () => {
       const tx = db.transaction("files", "readwrite");
       tx.objectStore("files").put(file, fileTag);
       insertText(fileTag + "\n");
+      sendFileAtMaxSpeed(file, fileTag, file.name);
     }
   };
   input.click();
@@ -1123,6 +1128,23 @@ function setupDataChannel(dc) {
 
     if (!isMobileMode) {
       saveToStorage();
+      if (db) {
+        // 現在の全タブのテキストを結合
+        const allText = state.tabs.map((t) => t.text).join("");
+        const tx = db.transaction("files", "readonly");
+        tx.objectStore("files").getAllKeys().onsuccess = (e) => {
+          const keys = e.target.result;
+          // テキスト内で現在使われているファイルタグだけを抽出して送信
+          keys.filter(k => allText.includes(k)).forEach(tag => {
+            db.transaction("files", "readonly").objectStore("files").get(tag).onsuccess = async (ev) => {
+              const fileData = ev.target.result;
+              if (fileData) {
+                await sendFileAtMaxSpeed(fileData, tag, fileData.name || "shared_file");
+              }
+            };
+          });
+        };
+      }
       const btn = document.getElementById("connect-btn");
       if(btn) {
          btn.textContent = "接続中(クリックで切断)";
