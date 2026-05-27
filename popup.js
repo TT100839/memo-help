@@ -459,7 +459,6 @@ function updateFiles() {
       viewLink.style.gap = "4px";
       viewLink.style.padding = "2px 4px";
       viewLink.style.borderRadius = "4px";
-      viewLink.draggable = true; // ドラッグアウト対応
       
       viewLink.innerHTML = `
         <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" class="link-icon">
@@ -504,11 +503,18 @@ function updateFiles() {
           viewLink.href = url;
           downloadBtn.href = url;
 
-          // OS外へのドラッグアウト対応（プレビューリンク側をドラッグ）
-          viewLink.addEventListener("dragstart", (e) => {
-            const mimeType = getReq.result.type || "application/octet-stream";
-            e.dataTransfer.setData("DownloadURL", `${mimeType}:${displayStr}:${url}`);
-          });
+          if (typeof isMobileMode !== 'undefined' && isMobileMode) {
+            // スマホ環境：download属性による保存が機能しないためダウンロードボタンを隠す
+            // プレビューリンクから別タブで開き、OSの機能で保存させる
+            downloadBtn.style.display = "none";
+          } else {
+            // PC環境：ドラッグアウトと専用ダウンロードボタンを有効化
+            viewLink.draggable = true;
+            viewLink.addEventListener("dragstart", (e) => {
+              const mimeType = getReq.result.type || "application/octet-stream";
+              e.dataTransfer.setData("DownloadURL", `${mimeType}:${displayStr}:${url}`);
+            });
+          }
         } else {
           const alertMsg = (e) => {
             e.preventDefault();
@@ -1379,7 +1385,14 @@ document.getElementById("connect-btn").onclick = async () => {
       finish();
     } else {
       pc.addEventListener("icecandidate", (e) => {
-        if (!e.candidate) finish(); // ★ タイポ（!e.candidate）を修正！これでスマホ側とタイミングが完全に合います
+        if (e.candidate) {
+          // パブリックIP(srflx)かリレー(relay)が見つかれば即座に進む
+          if (e.candidate.candidate.includes("srflx") || e.candidate.candidate.includes("relay")) {
+            finish();
+          }
+        } else {
+          finish();
+        }
       });
       pc.addEventListener("icegatheringstatechange", () => {
         if (pc.iceGatheringState === "complete") finish();
@@ -1475,11 +1488,16 @@ async function checkMobileConnection() {
     await new Promise((resolve) => {
       if (pc.iceGatheringState === "complete") resolve();
       else {
-        // ★ PC側と同じように、最初の経路が見つかった瞬間に進むように変更
         pc.addEventListener("icecandidate", (e) => {
-          if (!e.candidate) resolve();
+          if (e.candidate) {
+            if (e.candidate.candidate.includes("srflx") || e.candidate.candidate.includes("relay")) {
+              resolve();
+            }
+          } else {
+            resolve();
+          }
         });
-        setTimeout(resolve, 7000); // 最大で7秒待つ
+        setTimeout(resolve, 7000);
       }
     });
 
