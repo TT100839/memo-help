@@ -282,6 +282,10 @@ function init() {
         mWidth: res.memoWidth || state.mWidth,
         mHeight: res.memoHeight || state.mHeight,
       });
+      const currentTab = state.tabs.find((t) => t.id === state.activeTabId) || state.tabs[0];
+      if (currentTab && currentTab.text && !currentTab.text.endsWith("\n")) {
+        currentTab.text += "\n";
+      }
 
       applyModeLayout();
 
@@ -437,16 +441,54 @@ function updateFiles() {
       const match = fileTag.match(/\[(.*?)\]/);
       const displayStr = match ? match[1] : fileTag;
 
-      const a = document.createElement("a");
-      a.className = "file-link";
-      a.style.textDecoration = "none";
-      a.target = "_blank"; // ★ダウンロードではなく別タブでプレビューさせる
-      a.innerHTML = `
+      // 大枠をaタグからdivに変更（見た目はこれまでの.file-linkを維持）
+      const wrapper = document.createElement("div");
+      wrapper.className = "file-link";
+      wrapper.style.display = "inline-flex";
+      wrapper.style.alignItems = "center";
+      wrapper.style.padding = "2px 6px 2px 2px"; // 内側の余白を微調整
+      wrapper.style.gap = "6px";
+
+      // 1. 別タブでプレビュー表示するためのリンク（左側）
+      const viewLink = document.createElement("a");
+      viewLink.target = "_blank";
+      viewLink.style.textDecoration = "none";
+      viewLink.style.color = "inherit";
+      viewLink.style.display = "flex";
+      viewLink.style.alignItems = "center";
+      viewLink.style.gap = "4px";
+      viewLink.style.padding = "2px 4px";
+      viewLink.style.borderRadius = "4px";
+      viewLink.draggable = true; // ドラッグアウト対応
+      
+      viewLink.innerHTML = `
         <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" class="link-icon">
           <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path>
           <polyline points="13 2 13 9 20 9"></polyline>
         </svg>
         <span class="link-text">${displayStr}</span>
+      `;
+
+      // 2. 直接ダウンロードするための専用ボタン（右側）
+      const downloadBtn = document.createElement("a");
+      downloadBtn.download = displayStr;
+      downloadBtn.title = "ダウンロード";
+      downloadBtn.style.color = "inherit";
+      downloadBtn.style.display = "flex";
+      downloadBtn.style.alignItems = "center";
+      downloadBtn.style.padding = "4px";
+      downloadBtn.style.borderRadius = "4px";
+      downloadBtn.style.transition = "background-color 0.2s";
+      downloadBtn.onmouseenter = () => downloadBtn.style.backgroundColor = "rgba(130,130,130,0.2)";
+      downloadBtn.onmouseleave = () => downloadBtn.style.backgroundColor = "transparent";
+      
+      // ダウンロードアイコン
+      downloadBtn.innerHTML = `
+        <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+          <polyline points="7 10 12 15 17 10"></polyline>
+          <line x1="12" y1="15" x2="12" y2="3"></line>
+        </svg>
       `;
 
       const getReq = db
@@ -458,22 +500,33 @@ function updateFiles() {
         if (getReq.result) {
           const url = URL.createObjectURL(getReq.result);
           els.filesArea._blobUrls.push(url);
-          a.href = url;
-          // ★a.download 指定を削除して即閉じを防止
+          
+          viewLink.href = url;
+          downloadBtn.href = url;
+
+          // OS外へのドラッグアウト対応（プレビューリンク側をドラッグ）
+          viewLink.addEventListener("dragstart", (e) => {
+            const mimeType = getReq.result.type || "application/octet-stream";
+            e.dataTransfer.setData("DownloadURL", `${mimeType}:${displayStr}:${url}`);
+          });
         } else {
-          a.onclick = (e) => {
+          const alertMsg = (e) => {
             e.preventDefault();
             alert("ファイルデータが見つかりません");
           };
+          viewLink.onclick = alertMsg;
+          downloadBtn.onclick = alertMsg;
         }
       };
 
-      els.filesArea.appendChild(a);
+      wrapper.appendChild(viewLink);
+      wrapper.appendChild(downloadBtn);
+      els.filesArea.appendChild(wrapper);
     });
   };
 }
 function updateCharCount() {
-  els.charCount.textContent = `${els.memoArea.value.length}文字`;
+  els.charCount.textContent = `${els.memoArea.value.length}字`;
 }
 
 function renderTabs() {
@@ -1326,7 +1379,7 @@ document.getElementById("connect-btn").onclick = async () => {
       finish();
     } else {
       pc.addEventListener("icecandidate", (e) => {
-        if (e.candidate) finish(); // ★ タイポ（!e.candidate）を修正！これでスマホ側とタイミングが完全に合います
+        if (!e.candidate) finish(); // ★ タイポ（!e.candidate）を修正！これでスマホ側とタイミングが完全に合います
       });
       pc.addEventListener("icegatheringstatechange", () => {
         if (pc.iceGatheringState === "complete") finish();
@@ -1424,7 +1477,7 @@ async function checkMobileConnection() {
       else {
         // ★ PC側と同じように、最初の経路が見つかった瞬間に進むように変更
         pc.addEventListener("icecandidate", (e) => {
-          if (e.candidate) resolve();
+          if (!e.candidate) resolve();
         });
         setTimeout(resolve, 7000); // 最大で7秒待つ
       }
@@ -1442,6 +1495,4 @@ async function checkMobileConnection() {
   }
 }
 
-init();
 checkMobileConnection();
-
