@@ -12,7 +12,7 @@
   const isWindowMode =
     new URLSearchParams(window.location.search).has("mode") ||
     window.location.pathname.endsWith("mobile.html");
-  const isMobileMode = window.location.pathname.endsWith("mobile.html");
+  const isMobileMode = window.location.pathname.includes("mobile.html");
 
   const CHUNK_SIZE = 16 * 1024;
   const MAX_BUFFER = 256 * 1024;
@@ -647,6 +647,10 @@
 
       btn.addEventListener("pointerdown", (e) => {
         if (e.button !== 0) return;
+        if (isMobileMode) {
+          switchTab(tab.id);
+          return;
+        }
 
         let dragged = false;
         const startX = e.clientX;
@@ -1084,6 +1088,7 @@
   els.removeTabBtn.onclick = removeCurrentTab;
   els.timeBtn.onclick = insertTime;
   els.urlBtn.onclick = insertUrl;
+  els.modeSwitchBtn.onclick = openInWindow;
   if (els.helpBtn) {
     els.helpBtn.onclick = () => {
       chrome.tabs.create({ url: "https://tt100839.github.io/memo-help/" });
@@ -1361,7 +1366,7 @@
         els.tabContainer.parentElement.style.width = `${els.memoArea.offsetWidth}px`;
         setTimeout(() => {
           isResizing = false;
-        }, 50);
+        }, 5);
       });
     });
 
