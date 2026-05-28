@@ -1487,6 +1487,124 @@
     if (btnSearch) {
       btnSearch.addEventListener("click", () => playDemo("search"));
     }
+
+    // ▼▼ ここからポップアップ広告とイースターエッグの制御を追加 ▼▼
+    if (typeof isMobileMode !== "undefined" && isMobileMode) {
+      const adOverlay = document.getElementById("ad-popup-overlay");
+      const adCloseBtn = document.getElementById("ad-close-btn");
+      const adContent = document.getElementById("ad-popup-content");
+
+      if (adOverlay && adCloseBtn && adContent) {
+        adOverlay.style.display = "flex";
+        document.body.style.overflow = "hidden";
+
+        let isClosing = false;
+        const closeAdPopup = (isSwipedUp = false) => {
+          if (isClosing) return;
+          isClosing = true;
+          document.body.style.overflow = "";
+          adOverlay.style.animation = "fadeOut 0.25s ease forwards";
+          
+          if (isSwipedUp) {
+            adContent.style.animation = "slideUpOut 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards";
+          } else {
+            adContent.style.animation = "slideDown 0.25s ease forwards";
+          }
+          
+          setTimeout(() => {
+            adOverlay.style.display = "none";
+          }, 300);
+        };
+
+        adContent.addEventListener("click", (e) => e.stopPropagation());
+        adOverlay.addEventListener("click", () => closeAdPopup(false));
+        adCloseBtn.addEventListener("click", () => closeAdPopup(false));
+
+        let startY = 0;
+        adOverlay.addEventListener("touchstart", (e) => {
+          startY = e.touches[0].clientY;
+        }, { passive: true });
+
+        adOverlay.addEventListener("touchmove", (e) => {
+          if (e.cancelable) e.preventDefault();
+        }, { passive: false });
+
+        adOverlay.addEventListener("touchend", (e) => {
+          const endY = e.changedTouches[0].clientY;
+          if (startY - endY > 40) {
+            closeAdPopup(true);
+          }
+        });
+
+        setTimeout(() => {
+          const ninjaContainer = document.getElementById("ninja-ad-container");
+          if (ninjaContainer) {
+            if (ninjaContainer.offsetHeight < 10 || ninjaContainer.innerHTML.trim() === "") {
+              ninjaContainer.innerHTML = "";
+              ninjaContainer.style.paddingTop = "0";
+              
+              const hintText = document.querySelector(".ad-dismiss-hint span");
+              if (hintText) hintText.textContent = "Ad blocked! Secret Canvas 🎨";
+
+              const canvas = document.createElement("canvas");
+              canvas.style.width = "100%";
+              canvas.style.height = "100%";
+              canvas.style.touchAction = "none";
+              canvas.style.borderRadius = "0 0 16px 16px";
+              ninjaContainer.appendChild(canvas);
+
+              requestAnimationFrame(() => {
+                canvas.width = canvas.offsetWidth;
+                canvas.height = canvas.offsetHeight;
+                const ctx = canvas.getContext("2d");
+                ctx.lineWidth = 4;
+                ctx.lineCap = "round";
+                ctx.strokeStyle = "var(--accent-blue, #007aff)";
+
+                let isDrawing = false;
+                const getPos = (e) => {
+                  const rect = canvas.getBoundingClientRect();
+                  const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                  const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+                  return { x: clientX - rect.left, y: clientY - rect.top };
+                };
+
+                const startDraw = (e) => {
+                  e.stopPropagation();
+                  isDrawing = true;
+                  const pos = getPos(e);
+                  ctx.beginPath();
+                  ctx.moveTo(pos.x, pos.y);
+                };
+
+                const draw = (e) => {
+                  e.stopPropagation();
+                  if (!isDrawing) return;
+                  if (e.cancelable) e.preventDefault();
+                  const pos = getPos(e);
+                  ctx.lineTo(pos.x, pos.y);
+                  ctx.stroke();
+                };
+
+                const endDraw = (e) => {
+                  e.stopPropagation();
+                  isDrawing = false;
+                };
+
+                canvas.addEventListener("touchstart", startDraw, { passive: false });
+                canvas.addEventListener("touchmove", draw, { passive: false });
+                canvas.addEventListener("touchend", endDraw);
+                canvas.addEventListener("mousedown", startDraw);
+                canvas.addEventListener("mousemove", draw);
+                canvas.addEventListener("mouseup", endDraw);
+                canvas.addEventListener("mouseleave", endDraw);
+              });
+            }
+          }
+        }, 1500);
+      }
+    }
+    // ▲▲ 追加ここまで ▲▲
   });
   els.fileBtn.onclick = () => {
     const input = document.createElement("input");
