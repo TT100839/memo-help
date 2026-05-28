@@ -5,21 +5,21 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <link rel="stylesheet" href="popup.css" />
     <style>
-    /* 【修正後】以下のCSSにすべて差し替えてください */
-      /* スマホ全画面にフィットさせ、はみ出ないように固定する設定 */
+    /* スマホ全画面にフィットさせ、はみ出ないように固定する設定 */
       html, body { 
         width: 100vw; 
-        height: 100dvh; /* 画面の高さに完全に固定 */
+        min-height: 100dvh; /* 画面の高さを最低限確保しつつ伸びるように変更 */
         margin: 0; 
         padding: 12px 16px; 
         box-sizing: border-box; 
-        overflow: hidden; /* ★全体がスクロールしてしまうのを禁止 */
+        overflow-x: hidden; 
+        overflow-y: auto; /* ★全体がスクロールできるように許可 */
       }
       body { display: flex; flex-direction: column; }
       
       #memo-container { 
-        flex: 1 1 0; /* 残りの空間を埋めつつ縮小を許可 */
-        min-height: 0; /* 重要：中身が溢れてもコンテナを押し広げない */
+        flex: 1 1 auto; /* 残りの空間を埋めつつ縮小・拡大を許可 */
+        min-height: 40vh; /* 重要：テキストエリアが潰れすぎないように確保 */
         display: flex; 
         flex-direction: column; 
         width: 100%; 
@@ -33,7 +33,7 @@
         height: 100% !important; 
         max-height: none !important; 
         resize: none !important; 
-        overflow-y: auto; /* ★テキストエリアの中身だけを独立してスクロールさせる */
+        overflow-y: auto; /* ★テキストエリアの中身も独立してスクロール可能 */
       }
       
       /* 下部のボタン・機能エリアは絶対に潰さず、常に画面内に固定表示する */
