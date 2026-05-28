@@ -33,7 +33,7 @@
         height: 100% !important; 
         max-height: none !important; 
         resize: none !important; 
-        overflow-y: auto; 
+        overflow-y: auto; /* ★テキストエリアの中身も独立してスクロール可能 */
       }
       
       /* 下部のボタン・機能エリアは絶対に潰さず、常に画面内に固定表示する */
@@ -83,6 +83,9 @@
             />
           </svg>
         </button>
+        <button id="mode-switch-btn" class="icon-btn" title="Window Mode (Ctrl + P)">
+          ⧉
+        </button>
       </div>
     </div>
 
@@ -123,17 +126,20 @@
           File
         </button>
       </div>
-          <div class="footer-right" style="display: flex; align-items: center; gap: 4px; height: 28px;">
-    
-    <div id="qr-container" style="display:none; position:absolute; bottom:90px; right:0; background:#fff; padding:10px; border:1px solid #ccc; border-radius:8px; z-index:100; box-shadow: 0 4px 12px rgba(0,0,0,0.15); text-align:center;">
+          <div class="footer-right" style="display: flex; align-items: center;">
+
+  <button id="connect-btn" class="icon-btn" title="スマホ接続 (Ctrl + Q)" style="margin-right: 8px;">
+  <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+    <path d="M3 3h8v8H3zm2 2v4h4V5zm8-2h8v8h-8zm2 2v4h4V5zM3 13h8v8H3zm2 2v4h4v-4zm13 2h3v3h-3zm-3 0h2v3h-2zm3-3h3v2h-3zm-3 0h2v2h-2zm3-3h3v2h-3zm-3 0h2v2h-2zm-3 3h2v2h-2zm0 3h2v2h-2zm0-6h2v2h-2z"/>
+  </svg>
+</button>
+    <div id="qr-container" style="display:none; position:absolute; bottom:65px; right:0; background:#fff; padding:10px; border:1px solid #ccc; border-radius:8px; z-index:100; box-shadow: 0 4px 12px rgba(0,0,0,0.15); text-align:center;">
       <p id="session-id-text" style="font-size:12px; margin:0 0 5px 0;"></p>
       <img id="qr-image" src="" alt="QR" width="120" height="120">
     </div>
-<button id="export-btn" class="primary-btn" title="Export .txt (Ctrl + S / Ctrl + Shift + E)" style="padding: 0; width: 28px; height: 28px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;">
-  <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
-    <path d="M19 12v7H5v-7H3v7c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-7h-2zm-6 .67l2.59-2.58L17 11.5l-5 5-5-5 1.41-1.41L11 12.67V3h2v9.67z"/>
-  </svg>
-</button>
+  <button id="export-btn" class="primary-btn" title="Export .txt (Ctrl + S / Ctrl + Shift + E)">
+    EXP
+  </button>
       </div>
     </div>
 
