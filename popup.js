@@ -233,21 +233,25 @@
     targetTabId: null,
   };
   if (!isWindowMode && !isMobileMode && typeof localStorage !== "undefined") {
-    const savedW =
-      localStorage.getItem("memoW") || localStorage.getItem("lastPopW");
-    const savedH =
-      localStorage.getItem("memoH") || localStorage.getItem("lastPopH");
-    if (savedW && savedH) {
-      els.memoArea.style.width = savedW;
-      els.memoArea.style.height = savedH;
-      state.mWidth = savedW;
-      state.mHeight = savedH;
-      document.documentElement.style.width = savedW;
-      document.documentElement.style.height = savedH;
-      document.body.style.width = savedW;
-      document.body.style.height = savedH;
-      document.body.style.minWidth = savedW;
-      document.body.style.minHeight = savedH;
+    try {
+      const savedW =
+        localStorage.getItem("memoW") || localStorage.getItem("lastPopW");
+      const savedH =
+        localStorage.getItem("memoH") || localStorage.getItem("lastPopH");
+      if (savedW && savedH) {
+        els.memoArea.style.width = savedW;
+        els.memoArea.style.height = savedH;
+        state.mWidth = savedW;
+        state.mHeight = savedH;
+        document.documentElement.style.width = savedW;
+        document.documentElement.style.height = savedH;
+        document.body.style.width = savedW;
+        document.body.style.height = savedH;
+        document.body.style.minWidth = savedW;
+        document.body.style.minHeight = savedH;
+      }
+    } catch (e) {
+      console.warn("localStorage access denied in incognito mode.");
     }
   }
   function disconnectSync() {
@@ -275,17 +279,27 @@
   }
 
   const initDB = () => {
-    const req = indexedDB.open("MemoFilesDB", 1);
-    req.onupgradeneeded = (e) => {
-      db = e.target.result;
-      if (!db.objectStoreNames.contains("files")) {
-        db.createObjectStore("files");
-      }
-    };
-    req.onsuccess = (e) => {
-      db = e.target.result;
-      updateFiles();
-    };
+    try {
+      const req = indexedDB.open("MemoFilesDB", 1);
+      req.onupgradeneeded = (e) => {
+        db = e.target.result;
+        if (!db.objectStoreNames.contains("files")) {
+          db.createObjectStore("files");
+        }
+      };
+      req.onsuccess = (e) => {
+        db = e.target.result;
+        updateFiles();
+      };
+      req.onerror = (e) => {
+        console.warn("IndexedDB is disabled (e.g., incognito mode).");
+        db = null; // メモリモードへ移行
+        updateFiles();
+      };
+    } catch (e) {
+      console.warn("IndexedDB access denied.");
+      db = null;
+    }
   };
   function getUniqueFileTag(fileName) {
     let nameWithoutExt = fileName;
@@ -341,7 +355,9 @@
         }
         switchTab(state.activeTabId);
         updateUndoRedo();
-        els.memoArea.focus();
+        if (!isMobileMode) {
+          els.memoArea.focus();
+        }
       },
     );
     chrome.storage.onChanged.addListener((changes, area) => {
@@ -400,8 +416,12 @@
       });
     }
     if (!isWindowMode && !isMobileMode) {
-      localStorage.setItem("memoW", state.mWidth);
-      localStorage.setItem("memoH", state.mHeight);
+      try {
+        localStorage.setItem("memoW", state.mWidth);
+        localStorage.setItem("memoH", state.mHeight);
+      } catch (e) {
+        console.warn("localStorage access denied in incognito mode.");
+      }
     }
     if (syncDataChannel?.readyState === "open") {
       syncDataChannel.send(
@@ -923,11 +943,15 @@
     const t = state.tabs.find((t) => t.id === state.activeTabId);
     if (!t) return;
 
-    const {
-      selectionStart: start,
-      selectionEnd: end,
-      value: val,
-    } = els.memoArea;
+    let start = els.memoArea.selectionStart;
+    let end = els.memoArea.selectionEnd;
+    const val = els.memoArea.value;
+
+    if (document.activeElement !== els.memoArea) {
+      start = val.length;
+      end = val.length;
+    }
+
     els.memoArea.value = val.slice(0, start) + text + val.slice(end);
     els.memoArea.setSelectionRange(start + text.length, start + text.length);
     els.memoArea.focus();
@@ -1049,19 +1073,20 @@
 
   function applyHighlight(text, idx, len) {
     if (!els.backdrop) return;
-    const esc = (s) =>
-      s.replace(/[&<>"']/g, (m) => {
-        const map = {
-          "&": "&amp;",
-          "<": "&lt;",
-          ">": "&gt;",
-          '"': "&quot;",
-          "'": "&#39;",
-        };
-        return map[m];
-      });
 
-    els.backdrop.innerHTML = `${esc(text.slice(0, idx))}<mark>${esc(text.slice(idx, idx + len))}</mark>${esc(text.slice(idx + len))}<br>`;
+    const beforeText = text.slice(0, idx);
+    const highlightText = text.slice(idx, idx + len);
+    const afterText = text.slice(idx + len);
+
+    els.backdrop.innerHTML = "";
+    els.backdrop.appendChild(document.createTextNode(beforeText));
+
+    const markEl = document.createElement("mark");
+    markEl.textContent = highlightText;
+    els.backdrop.appendChild(markEl);
+
+    els.backdrop.appendChild(document.createTextNode(afterText));
+    els.backdrop.appendChild(document.createElement("br"));
 
     syncBackdrop();
     els.backdrop.scrollTop = els.memoArea.scrollTop;
@@ -1128,6 +1153,36 @@
       tx.oncomplete = () => updateFiles();
       insertText(fileTag + "\n");
       await sendFileAtMaxSpeed(file, fileTag, file.name);
+    }
+  });
+  els.memoArea.addEventListener("paste", (e) => {
+    if (!db || !e.clipboardData || !e.clipboardData.items) return;
+
+    const items = e.clipboardData.items;
+
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.indexOf("image") !== -1) {
+        const file = items[i].getAsFile();
+        if (!file) continue;
+
+        e.preventDefault();
+
+        const d = new Date();
+        const pad = (n) => String(n).padStart(2, "0");
+        const timestamp = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+        const ext = file.type.split("/")[1] || "png";
+        const fileName = `screenshot_${timestamp}.${ext}`;
+
+        const fileTag = getUniqueFileTag(fileName);
+        const tx = db.transaction("files", "readwrite");
+        tx.objectStore("files").put(file, fileTag);
+
+        tx.oncomplete = async () => {
+          insertText(fileTag + "\n");
+          updateFiles();
+          await sendFileAtMaxSpeed(file, fileTag, fileName);
+        };
+      }
     }
   });
   els.memoArea.addEventListener("input", () => {
@@ -1321,8 +1376,10 @@
         const mw = els.memoArea.style.width;
         const mh = els.memoArea.style.height;
         if (mw && mh) {
-          localStorage.setItem("memoW", mw);
-          localStorage.setItem("memoH", mh);
+          try {
+            localStorage.setItem("memoW", mw);
+            localStorage.setItem("memoH", mh);
+          } catch (e) {}
           state.mWidth = mw;
           state.mHeight = mh;
         }
@@ -1361,8 +1418,11 @@
         document.body.style.minWidth = `${w}px`;
         document.body.style.minHeight = `${h}px`;
         syncBackdrop();
-        localStorage.setItem("lastPopW", `${w}px`);
-        localStorage.setItem("lastPopH", `${h}px`);
+        try {
+          localStorage.setItem("lastPopW", `${w}px`);
+          localStorage.setItem("lastPopH", `${h}px`);
+        } catch (e) {}
+
         els.tabContainer.parentElement.style.width = `${els.memoArea.offsetWidth}px`;
         setTimeout(() => {
           isResizing = false;
@@ -1495,8 +1555,8 @@
       if (!isMobileMode) {
         const btn = document.getElementById("connect-btn");
         if (btn) {
-          btn.title = "Connect to mobile (Ctrl + Q)";
-          btn.style.color = "#34a853";
+          btn.title = "Disconnected. Click to reconnect.";
+          btn.style.color = "#f44336";
           btn.disabled = false;
         }
       } else {
@@ -1546,7 +1606,7 @@
     connectBtn.title = "Ready(1/3)...";
     connectBtn.style.color = "#f4b400";
 
-    const sessionId = Math.floor(100000 + Math.random() * 900000).toString();
+    const sessionId = crypto.randomUUID();
     const connectUrl = MOBILE_SITE_URL + "?id=" + sessionId;
 
     const pc = new RTCPeerConnection({
@@ -1600,21 +1660,30 @@
       if (!res.ok) throw new Error("Upload failed");
     } catch (err) {
       connectBtn.title = "Server connection error";
+      connectBtn.style.color = "#f44336";
       connectBtn.disabled = false;
       disconnectSync();
       return;
     }
 
-    document.getElementById("qr-image").src =
-      "https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=" +
-      encodeURIComponent(connectUrl);
+    const qrCanvas = document.getElementById("qr-image");
+    new QRious({
+      element: qrCanvas,
+      value: connectUrl,
+      size: 120,
+      background: "white",
+      foreground: "black",
+    });
     document.getElementById("session-id-text").textContent = "ID: " + sessionId;
     document.getElementById("qr-container").style.display = "block";
     connectBtn.title = "Waiting for mobile connection...";
     connectBtn.style.color = "#4285f4";
     connectBtn.disabled = false;
 
+    let pollCount = 0;
+    const maxPolls = 30;
     signalingPollInterval = setInterval(async () => {
+      pollCount++;
       if (!syncPeerConnection || pc.signalingState === "closed") {
         clearInterval(signalingPollInterval);
         return;
@@ -1623,16 +1692,22 @@
         clearInterval(signalingPollInterval);
         return;
       }
+      if (pollCount > maxPolls) {
+        clearInterval(signalingPollInterval);
+        connectBtn.title = "Connection timeout (60s)";
+        connectBtn.style.color = "#f44336";
+        document.getElementById("qr-container").style.display = "none";
+        disconnectSync();
+        return;
+      }
       try {
         const res = await fetch(WORKER_URL + "/answer?id=" + sessionId);
         if (res.ok) {
           const answer = await res.json();
           await pc.setRemoteDescription(answer);
           clearInterval(signalingPollInterval);
-          setTimeout(() => {
-            const qr = document.getElementById("qr-container");
-            if (qr) qr.style.display = "none";
-          }, 2000);
+          const qr = document.getElementById("qr-container");
+          if (qr) qr.style.display = "none";
         }
       } catch (e) {}
     }, 2000);
@@ -1704,6 +1779,24 @@
       els.memoArea.value = "An error occurred during communication";
     }
   }
+  window.addEventListener("offline", () => {
+    const btn = document.getElementById("connect-btn");
+    if (btn) {
+      btn.title = "Network disconnected. Please check your Wi-Fi.";
+      btn.style.color = "#f44336";
+    }
+    if (syncPeerConnection || syncDataChannel) {
+      els.memoArea.placeholder = "Error: Wi-Fi/Network disconnected.";
+      disconnectSync();
+    }
+  });
 
+  window.addEventListener("online", () => {
+    const btn = document.getElementById("connect-btn");
+    if (btn && btn.style.color === "rgb(244, 67, 54)") {
+      btn.title = "Network restored. Ready to connect.";
+      btn.style.color = "";
+    }
+  });
   checkMobileConnection();
 })();
