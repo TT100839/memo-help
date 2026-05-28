@@ -96,7 +96,6 @@ function handleSyncMessage(event) {
 
     if (data.type === "file_end" && incomingFileInfo) {
       els.memoArea.placeholder = `ファイルを構築・保存中...`;
-      // ArrayBufferやBlobが混ざっていても安全に一つのファイルに結合
       const blob = new Blob(incomingFile, { type: incomingFileInfo.mimeType });
 
       if (db) {
@@ -106,17 +105,25 @@ function handleSyncMessage(event) {
 
           tx.oncomplete = () => {
             els.memoArea.placeholder = "";
-            // 【修正ポイント2】スマホのデータベース反映遅延を防ぐため、100msだけ待ってから描画する
             setTimeout(updateFiles, 100);
           };
           tx.onerror = (e) => {
-            els.memoArea.placeholder =
-              "保存エラー: スマホの容量制限等により失敗しました";
-            console.error("DB Save Error:", e);
+            // ★DB書き込みエラー時のみメモリに退避
+            incomingFiles[incomingFileInfo.tag] = blob;
+            els.memoArea.placeholder = "DB制限により一時メモリに保存しました";
+            setTimeout(updateFiles, 100);
           };
         } catch (e) {
-          els.memoArea.placeholder = "DB操作エラー: 保存処理に失敗しました";
+          // ★トランザクション生成エラー時のみメモリに退避
+          incomingFiles[incomingFileInfo.tag] = blob;
+          els.memoArea.placeholder = "モード制限のため一時メモリに保存しました";
+          setTimeout(updateFiles, 100);
         }
+      } else {
+        // ★DBが初期化されていない場合のみメモリに退避
+        incomingFiles[incomingFileInfo.tag] = blob;
+        els.memoArea.placeholder = "";
+        setTimeout(updateFiles, 100);
       }
 
       incomingFile = [];
@@ -424,35 +431,29 @@ function updateLinks() {
   });
 }
 function updateFiles() {
-  if (!els.filesArea || !db) return;
+  if (!els.filesArea) return;
 
-  const tx = db.transaction("files", "readonly");
-  const req = tx.objectStore("files").getAllKeys();
-
-  req.onsuccess = () => {
+  const processFiles = (dbKeys = []) => {
     if (els.filesArea._blobUrls) {
       els.filesArea._blobUrls.forEach((url) => URL.revokeObjectURL(url));
     }
     els.filesArea._blobUrls = [];
-
     els.filesArea.innerHTML = "";
-    const keys = req.result;
+
     const currentText = els.memoArea.value;
+    const memoryKeys = Object.keys(incomingFiles);
 
-    // テキストに含まれるファイルを抽出
-    let activeFiles = keys.filter((key) => currentText.includes(key));
+    // DBのキーとメモリ（エラー退避分）のキーを結合
+    const allKeys = Array.from(new Set([...dbKeys, ...memoryKeys]));
+    let activeFiles = allKeys.filter((key) => currentText.includes(key));
 
-    // ★修正1：テキスト上の出現順（記述した順番）にソートする
-    activeFiles.sort((a, b) => {
-      return currentText.indexOf(a) - currentText.indexOf(b);
-    });
+    activeFiles.sort((a, b) => currentText.indexOf(a) - currentText.indexOf(b));
 
     if (!activeFiles.length) {
       els.filesArea.style.display = "none";
       return;
     }
 
-    // ★修正2：スマホでの見切れ対策として表示時にflexWrapを明示する
     els.filesArea.style.display = "flex";
     els.filesArea.style.flexWrap = "wrap";
 
@@ -471,7 +472,7 @@ function updateFiles() {
       wrapper.style.alignItems = "center";
       wrapper.style.padding = "2px 6px 2px 2px";
       wrapper.style.gap = "6px";
-      wrapper.style.marginBottom = "4px"; // 折り返し時の上下の隙間
+      wrapper.style.marginBottom = "4px";
 
       const viewLink = document.createElement("a");
       viewLink.target = "_blank";
@@ -482,7 +483,6 @@ function updateFiles() {
       viewLink.style.gap = "4px";
       viewLink.style.padding = "2px 4px";
       viewLink.style.borderRadius = "4px";
-
       viewLink.innerHTML = `
         <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" class="link-icon">
           <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path>
@@ -500,11 +500,8 @@ function updateFiles() {
       downloadBtn.style.padding = "4px";
       downloadBtn.style.borderRadius = "4px";
       downloadBtn.style.transition = "background-color 0.2s";
-      downloadBtn.onmouseenter = () =>
-        (downloadBtn.style.backgroundColor = "rgba(130,130,130,0.2)");
-      downloadBtn.onmouseleave = () =>
-        (downloadBtn.style.backgroundColor = "transparent");
-
+      downloadBtn.onmouseenter = () => (downloadBtn.style.backgroundColor = "rgba(130,130,130,0.2)");
+      downloadBtn.onmouseleave = () => (downloadBtn.style.backgroundColor = "transparent");
       downloadBtn.innerHTML = `
         <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
@@ -513,46 +510,64 @@ function updateFiles() {
         </svg>
       `;
 
-      const getReq = db
-        .transaction("files", "readonly")
-        .objectStore("files")
-        .get(fileTag);
+      const displayFile = (blob) => {
+        const url = URL.createObjectURL(blob);
+        els.filesArea._blobUrls.push(url);
+        viewLink.href = url;
+        downloadBtn.href = url;
 
-      getReq.onsuccess = () => {
-        if (getReq.result) {
-          const url = URL.createObjectURL(getReq.result);
-          els.filesArea._blobUrls.push(url);
-
-          viewLink.href = url;
-          downloadBtn.href = url;
-
-          if (typeof isMobileMode !== "undefined" && isMobileMode) {
-            downloadBtn.style.display = "none";
-          } else {
-            viewLink.draggable = true;
-            viewLink.addEventListener("dragstart", (e) => {
-              const mimeType = getReq.result.type || "application/octet-stream";
-              e.dataTransfer.setData(
-                "DownloadURL",
-                `${mimeType}:${displayStr}:${url}`,
-              );
-            });
-          }
+        if (typeof isMobileMode !== "undefined" && isMobileMode) {
+          downloadBtn.style.display = "none";
         } else {
-          const alertMsg = (e) => {
-            e.preventDefault();
-            alert("ファイルデータが見つかりません");
-          };
-          viewLink.onclick = alertMsg;
-          downloadBtn.onclick = alertMsg;
+          viewLink.draggable = true;
+          viewLink.addEventListener("dragstart", (e) => {
+            const mimeType = blob.type || "application/octet-stream";
+            e.dataTransfer.setData("DownloadURL", `${mimeType}:${displayStr}:${url}`);
+          });
         }
       };
+
+      const alertMsg = (e) => {
+        e.preventDefault();
+        alert("ファイルデータが見つかりません");
+      };
+
+      // ★ メモリ領域に退避されたファイルがあればそれを優先描画
+      if (incomingFiles[fileTag]) {
+        displayFile(incomingFiles[fileTag]);
+      } else if (db) {
+        try {
+          const getReq = db.transaction("files", "readonly").objectStore("files").get(fileTag);
+          getReq.onsuccess = () => {
+            if (getReq.result) displayFile(getReq.result);
+            else { viewLink.onclick = alertMsg; downloadBtn.onclick = alertMsg; }
+          };
+          getReq.onerror = () => { viewLink.onclick = alertMsg; downloadBtn.onclick = alertMsg; };
+        } catch (e) {
+          viewLink.onclick = alertMsg; downloadBtn.onclick = alertMsg;
+        }
+      } else {
+        viewLink.onclick = alertMsg; downloadBtn.onclick = alertMsg;
+      }
 
       wrapper.appendChild(viewLink);
       wrapper.appendChild(downloadBtn);
       els.filesArea.appendChild(wrapper);
     });
   };
+
+  if (db) {
+    try {
+      const tx = db.transaction("files", "readonly");
+      const req = tx.objectStore("files").getAllKeys();
+      req.onsuccess = () => processFiles(req.result);
+      req.onerror = () => processFiles([]);
+    } catch (e) {
+      processFiles([]);
+    }
+  } else {
+    processFiles([]);
+  }
 }
 function updateCharCount() {
   els.charCount.textContent = `${els.memoArea.value.length}字`;
