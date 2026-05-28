@@ -406,8 +406,6 @@ function updateLinks() {
     els.linksArea.appendChild(a);
   });
 }
-// 【修正】updateFiles 関数を以下に丸ごと差し替えてください
-// 【修正】updateFiles 関数を以下に丸ごと差し替えてください
 function updateFiles() {
   if (!els.filesArea || !db) return;
 
@@ -424,14 +422,23 @@ function updateFiles() {
     const keys = req.result;
     const currentText = els.memoArea.value;
 
-    const activeFiles = keys.filter((key) => currentText.includes(key));
+    // テキストに含まれるファイルを抽出
+    let activeFiles = keys.filter((key) => currentText.includes(key));
+
+    // ★修正1：テキスト上の出現順（記述した順番）にソートする
+    activeFiles.sort((a, b) => {
+      return currentText.indexOf(a) - currentText.indexOf(b);
+    });
 
     if (!activeFiles.length) {
       els.filesArea.style.display = "none";
       return;
     }
 
+    // ★修正2：スマホでの見切れ対策として表示時にflexWrapを明示する
     els.filesArea.style.display = "flex";
+    els.filesArea.style.flexWrap = "wrap";
+    
     const label = document.createElement("div");
     label.className = "files-label";
     label.textContent = "files";
@@ -441,15 +448,14 @@ function updateFiles() {
       const match = fileTag.match(/\[(.*?)\]/);
       const displayStr = match ? match[1] : fileTag;
 
-      // 大枠をaタグからdivに変更（見た目はこれまでの.file-linkを維持）
       const wrapper = document.createElement("div");
       wrapper.className = "file-link";
       wrapper.style.display = "inline-flex";
       wrapper.style.alignItems = "center";
-      wrapper.style.padding = "2px 6px 2px 2px"; // 内側の余白を微調整
+      wrapper.style.padding = "2px 6px 2px 2px";
       wrapper.style.gap = "6px";
+      wrapper.style.marginBottom = "4px"; // 折り返し時の上下の隙間
 
-      // 1. 別タブでプレビュー表示するためのリンク（左側）
       const viewLink = document.createElement("a");
       viewLink.target = "_blank";
       viewLink.style.textDecoration = "none";
@@ -468,7 +474,6 @@ function updateFiles() {
         <span class="link-text">${displayStr}</span>
       `;
 
-      // 2. 直接ダウンロードするための専用ボタン（右側）
       const downloadBtn = document.createElement("a");
       downloadBtn.download = displayStr;
       downloadBtn.title = "ダウンロード";
@@ -481,7 +486,6 @@ function updateFiles() {
       downloadBtn.onmouseenter = () => downloadBtn.style.backgroundColor = "rgba(130,130,130,0.2)";
       downloadBtn.onmouseleave = () => downloadBtn.style.backgroundColor = "transparent";
       
-      // ダウンロードアイコン
       downloadBtn.innerHTML = `
         <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
@@ -504,11 +508,8 @@ function updateFiles() {
           downloadBtn.href = url;
 
           if (typeof isMobileMode !== 'undefined' && isMobileMode) {
-            // スマホ環境：download属性による保存が機能しないためダウンロードボタンを隠す
-            // プレビューリンクから別タブで開き、OSの機能で保存させる
             downloadBtn.style.display = "none";
           } else {
-            // PC環境：ドラッグアウトと専用ダウンロードボタンを有効化
             viewLink.draggable = true;
             viewLink.addEventListener("dragstart", (e) => {
               const mimeType = getReq.result.type || "application/octet-stream";
