@@ -33,7 +33,7 @@
         height: 100% !important; 
         max-height: none !important; 
         resize: none !important; 
-        overflow-y: auto; /* ★テキストエリアの中身も独立してスクロール可能 */
+        overflow-y: auto; 
       }
       
       /* 下部のボタン・機能エリアは絶対に潰さず、常に画面内に固定表示する */
@@ -65,7 +65,6 @@
   <body>
 
     <div id="header">
-      <div id="tab-container" title="⧉ Drag to pop out"></div>
       <div class="header-actions">
         <button id="add-tab-btn" class="icon-btn" title="New Tab (Ctrl + T / Ctrl + N)&#10;Restore Tab (Ctrl + Shift + T / Ctrl + Shift + N)">+</button>
         <button
@@ -82,9 +81,6 @@
               d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 14 11.99 14 14z"
             />
           </svg>
-        </button>
-        <button id="mode-switch-btn" class="icon-btn" title="Window Mode (Ctrl + P)">
-          ⧉
         </button>
       </div>
     </div>
@@ -118,32 +114,25 @@
 
     <div id="footer">
       <div class="footer-left">
-        <span id="char-count" class="stat">0 chars</span>
+        <span id="char-count" class="stat">0</span>
         <button id="time-btn" class="text-link-btn" title="Insert Time">
           Time
-        </button>
-        <button id="url-btn" class="text-link-btn" title="Insert URL (Ctrl + D / Ctrl + Shift + D)">
-          URL
         </button>
         <button id="file-btn" class="text-link-btn" title="Insert File">
           File
         </button>
       </div>
-          <div class="footer-right" style="display: flex; align-items: center;">
-  <button id="help-btn" class="icon-btn" title="使い方ガイドを開く" style="margin-right: 8px; width: 24px; height: 24px;">
-    <svg viewBox="0 0 24 24" width="1" height="1" fill="currentColor" style="transform: translate(1px, 1px);">
-      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-2.5c0-.55.22-1.05.59-1.41l1.2-1.25c.32-.31.49-.73.49-1.18 0-.82-.66-1.5-1.48-1.5s-1.5.68-1.5 1.5h-2c0-1.93 1.57-3.5 3.5-3.5s3.5 1.57 3.5 3.5c0 .95-.38 1.81-1.03 2.45z"/>
-    </svg>
-  </button>
-  <button id="connect-btn" class="primary-btn" style="margin-right: 8px; background-color: #34a853;">スマホ接続(QR)</button>
+                   <div class="footer-right" style="display: flex; align-items: center; gap: 4px; height: 28px;">
     
-    <div id="qr-container" style="display:none; position:absolute; bottom:40px; right:0; background:#fff; padding:10px; border:1px solid #ccc; border-radius:8px; z-index:100; box-shadow: 0 4px 12px rgba(0,0,0,0.15); text-align:center;">
+    <div id="qr-container" style="display:none; position:absolute; bottom:90px; right:0; background:#fff; padding:10px; border:1px solid #ccc; border-radius:8px; z-index:100; box-shadow: 0 4px 12px rgba(0,0,0,0.15); text-align:center;">
       <p id="session-id-text" style="font-size:12px; margin:0 0 5px 0;"></p>
       <img id="qr-image" src="" alt="QR" width="120" height="120">
     </div>
-  <button id="export-btn" class="primary-btn" title="Export .txt (Ctrl + S / Ctrl + Shift + E)">
-    Export
-  </button>
+<button id="export-btn" class="primary-btn" title="Export .txt (Ctrl + S / Ctrl + Shift + E)" style="padding: 0; width: 28px; height: 28px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;">
+  <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+    <path d="M19 12v7H5v-7H3v7c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-7h-2zm-6 .67l2.59-2.58L17 11.5l-5 5-5-5 1.41-1.41L11 12.67V3h2v9.67z"/>
+  </svg>
+</button>
       </div>
     </div>
 
