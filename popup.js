@@ -24,6 +24,29 @@
   let syncDataChannel = null;
   let syncPeerConnection = null;
   let signalingPollInterval = null;
+  const fileSendQueue = [];
+  let isSendingFile = false;
+
+  function enqueueFile(file, tag, fileName) {
+    fileSendQueue.push({ file, tag, fileName });
+    processFileQueue();
+  }
+
+  async function processFileQueue() {
+    if (isSendingFile || fileSendQueue.length === 0) return;
+    isSendingFile = true;
+
+    while (fileSendQueue.length > 0) {
+      const { file, tag, fileName } = fileSendQueue.shift();
+      try {
+        await sendFileAtMaxSpeed(file, tag, fileName);
+      } catch (e) {
+        console.error("File send error:", e);
+      }
+    }
+    
+    isSendingFile = false;
+  }
   async function sendFileAtMaxSpeed(file, tag, fileName) {
     if (!syncDataChannel || syncDataChannel.readyState !== "open") return;
 
@@ -42,6 +65,8 @@
     const arrayBuffer = await file.arrayBuffer();
     let offset = 0;
 
+    // 【修正後】
+    const chunkSize = 16 * 1024; // 16KB
     const sendChunk = async () => {
       while (offset < arrayBuffer.byteLength) {
         if (syncDataChannel.bufferedAmount > 64 * 1024) {
@@ -52,15 +77,19 @@
                 resolve();
               };
             }),
-            new Promise((resolve) => setTimeout(resolve, 1000)),
+            new Promise((resolve) => setTimeout(resolve, 500)),
           ]);
         }
-        const chunk = arrayBuffer.slice(offset, offset + 16 * 1024);
+        const chunk = arrayBuffer.slice(offset, offset + chunkSize);
         syncDataChannel.send(chunk);
-        offset += 16 * 1024;
+        offset += chunkSize;
+
+        // ★パケット送信の間に息継ぎを入れ、テキスト同期等の割り込みを許可する
+        if (offset % (chunkSize * 10) === 0) { 
+          await new Promise(resolve => setTimeout(resolve, 0));
+        }
       }
     };
-
     await sendChunk();
     syncDataChannel.send(JSON.stringify({ type: "file_end" }));
   }
@@ -276,6 +305,10 @@
     }
     incomingFile = [];
     incomingFileInfo = null;
+    if (typeof fileSendQueue !== "undefined") {
+      fileSendQueue.length = 0;
+      isSendingFile = false;
+    }
   }
 
   const initDB = () => {
@@ -576,6 +609,16 @@
           els.filesArea._blobUrls.push(url);
           viewLink.href = url;
           if (downloadBtn) downloadBtn.href = url;
+
+          if (blob.type && blob.type.startsWith("video/")) {
+            viewLink.innerHTML = `
+              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" class="link-icon">
+                <circle cx="12" cy="12" r="10"></circle>
+                <polygon points="10 8 16 12 10 16 10 8"></polygon>
+              </svg>
+              <span class="link-text">${displayStr}</span>
+            `;
+          }
 
           wrapper.draggable = true;
           wrapper.addEventListener("dragstart", (e) => {
@@ -1152,7 +1195,7 @@
       tx.objectStore("files").put(file, fileTag);
       tx.oncomplete = () => updateFiles();
       insertText(fileTag + "\n");
-      await sendFileAtMaxSpeed(file, fileTag, file.name);
+      enqueueFile(file, fileTag, file.name); 
     }
   });
   els.memoArea.addEventListener("paste", (e) => {
@@ -1180,7 +1223,7 @@
         tx.oncomplete = async () => {
           insertText(fileTag + "\n");
           updateFiles();
-          await sendFileAtMaxSpeed(file, fileTag, fileName);
+          enqueueFile(file, fileTag, fileName);
         };
       }
     }
@@ -1458,7 +1501,7 @@
         tx.oncomplete = async () => {
           insertText(fileTag + "\n");
           updateFiles();
-          await sendFileAtMaxSpeed(file, fileTag, file.name);
+          enqueueFile(file, fileTag, file.name);
         };
       }
     };
@@ -1515,11 +1558,7 @@
                   req.onerror = () => resolve(null);
                 });
                 if (fileData) {
-                  await sendFileAtMaxSpeed(
-                    fileData,
-                    tag,
-                    fileData.name || "shared_file",
-                  );
+                  enqueueFile(fileData, tag, fileData.name || "shared_file");
                 }
               }
             };
