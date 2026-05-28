@@ -68,8 +68,10 @@ if (typeof chrome === "undefined" || !chrome.storage) {
 }
 
 // handleSyncMessage関数を拡張してバイナリとメタデータを処理
+// 【修正】handleSyncMessage関数を以下に丸ごと差し替えてください
 function handleSyncMessage(event) {
-  if (event.data instanceof ArrayBuffer) {
+  // 【修正ポイント1】文字列以外（バイナリデータ）なら無条件でファイルの一部として受け入れる
+  if (typeof event.data !== "string") {
     incomingFile.push(event.data);
     if (incomingFileInfo && incomingFileInfo.size > 0) {
       const received = incomingFile.length * (16 * 1024);
@@ -91,20 +93,26 @@ function handleSyncMessage(event) {
 
     if (data.type === "file_end" && incomingFileInfo) {
       els.memoArea.placeholder = `ファイルを構築・保存中...`;
+      // ArrayBufferやBlobが混ざっていても安全に一つのファイルに結合
       const blob = new Blob(incomingFile, { type: incomingFileInfo.mimeType });
       
       if (db) {
-        const tx = db.transaction("files", "readwrite");
-        tx.objectStore("files").put(blob, incomingFileInfo.tag);
-        
-        tx.oncomplete = () => {
-          els.memoArea.placeholder = "";
-          updateFiles();
-        };
-        tx.onerror = (e) => {
-          els.memoArea.placeholder = "保存エラー: スマホの容量制限等により失敗しました";
-          console.error("DB Save Error:", e);
-        };
+        try {
+          const tx = db.transaction("files", "readwrite");
+          tx.objectStore("files").put(blob, incomingFileInfo.tag);
+          
+          tx.oncomplete = () => {
+            els.memoArea.placeholder = "";
+            // 【修正ポイント2】スマホのデータベース反映遅延を防ぐため、100msだけ待ってから描画する
+            setTimeout(updateFiles, 100);
+          };
+          tx.onerror = (e) => {
+            els.memoArea.placeholder = "保存エラー: スマホの容量制限等により失敗しました";
+            console.error("DB Save Error:", e);
+          };
+        } catch (e) {
+          els.memoArea.placeholder = "DB操作エラー: 保存処理に失敗しました";
+        }
       }
       
       incomingFile = [];
@@ -118,7 +126,6 @@ function handleSyncMessage(event) {
     }
     
     if (data.type === "sync_state" && data.tabs && data.tabs.length > 0) {
-      // 外部からの同期時に変更があればシンプルに履歴を保存する
       const currentTab = state.tabs.find((t) => t.id === state.activeTabId);
       const newTab = data.tabs.find((t) => t.id === data.activeTabId);
       
