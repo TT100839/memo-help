@@ -15,9 +15,9 @@ let incomingFileInfo = null;
 // 【修正】sendFileAtMaxSpeed 関数を以下に丸ごと差し替えてください
 async function sendFileAtMaxSpeed(file, tag, fileName) {
   if (!syncDataChannel || syncDataChannel.readyState !== "open") return;
-  
+
   syncDataChannel.bufferedAmountLowThreshold = 32 * 1024;
-  
+
   syncDataChannel.send(
     JSON.stringify({
       type: "file_start",
@@ -42,7 +42,7 @@ async function sendFileAtMaxSpeed(file, tag, fileName) {
               resolve();
             };
           }),
-          new Promise((resolve) => setTimeout(resolve, 1000))
+          new Promise((resolve) => setTimeout(resolve, 1000)),
         ]);
       }
       // 送信サイズを32KBに引き上げてさらに高速化
@@ -75,7 +75,10 @@ function handleSyncMessage(event) {
     incomingFile.push(event.data);
     if (incomingFileInfo && incomingFileInfo.size > 0) {
       const received = incomingFile.length * (16 * 1024);
-      const percent = Math.min(100, Math.floor((received / incomingFileInfo.size) * 100));
+      const percent = Math.min(
+        100,
+        Math.floor((received / incomingFileInfo.size) * 100),
+      );
       els.memoArea.placeholder = `[${incomingFileInfo.name}] を受信中... ${percent}%`;
     }
     return;
@@ -95,40 +98,41 @@ function handleSyncMessage(event) {
       els.memoArea.placeholder = `ファイルを構築・保存中...`;
       // ArrayBufferやBlobが混ざっていても安全に一つのファイルに結合
       const blob = new Blob(incomingFile, { type: incomingFileInfo.mimeType });
-      
+
       if (db) {
         try {
           const tx = db.transaction("files", "readwrite");
           tx.objectStore("files").put(blob, incomingFileInfo.tag);
-          
+
           tx.oncomplete = () => {
             els.memoArea.placeholder = "";
             // 【修正ポイント2】スマホのデータベース反映遅延を防ぐため、100msだけ待ってから描画する
             setTimeout(updateFiles, 100);
           };
           tx.onerror = (e) => {
-            els.memoArea.placeholder = "保存エラー: スマホの容量制限等により失敗しました";
+            els.memoArea.placeholder =
+              "保存エラー: スマホの容量制限等により失敗しました";
             console.error("DB Save Error:", e);
           };
         } catch (e) {
           els.memoArea.placeholder = "DB操作エラー: 保存処理に失敗しました";
         }
       }
-      
+
       incomingFile = [];
       incomingFileInfo = null;
       return;
     }
-    
+
     if (data.type === "sync_request" && !isMobileMode) {
       saveToStorage();
       return;
     }
-    
+
     if (data.type === "sync_state" && data.tabs && data.tabs.length > 0) {
       const currentTab = state.tabs.find((t) => t.id === state.activeTabId);
       const newTab = data.tabs.find((t) => t.id === data.activeTabId);
-      
+
       if (currentTab && newTab && currentTab.text !== newTab.text) {
         pushSnapshot();
       }
@@ -143,9 +147,14 @@ function handleSyncMessage(event) {
       }
 
       if (data.searchVisible !== undefined) {
-        els.searchContainer.style.display = data.searchVisible ? "flex" : "none";
+        els.searchContainer.style.display = data.searchVisible
+          ? "flex"
+          : "none";
       }
-      if (data.searchValue !== undefined && els.searchInput.value !== data.searchValue) {
+      if (
+        data.searchValue !== undefined &&
+        els.searchInput.value !== data.searchValue
+      ) {
         els.searchInput.value = data.searchValue;
       }
 
@@ -289,7 +298,8 @@ function init() {
         mWidth: res.memoWidth || state.mWidth,
         mHeight: res.memoHeight || state.mHeight,
       });
-      const currentTab = state.tabs.find((t) => t.id === state.activeTabId) || state.tabs[0];
+      const currentTab =
+        state.tabs.find((t) => t.id === state.activeTabId) || state.tabs[0];
       if (currentTab && currentTab.text && !currentTab.text.endsWith("\n")) {
         currentTab.text += "\n";
       }
@@ -445,7 +455,7 @@ function updateFiles() {
     // ★修正2：スマホでの見切れ対策として表示時にflexWrapを明示する
     els.filesArea.style.display = "flex";
     els.filesArea.style.flexWrap = "wrap";
-    
+
     const label = document.createElement("div");
     label.className = "files-label";
     label.textContent = "files";
@@ -472,7 +482,7 @@ function updateFiles() {
       viewLink.style.gap = "4px";
       viewLink.style.padding = "2px 4px";
       viewLink.style.borderRadius = "4px";
-      
+
       viewLink.innerHTML = `
         <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" class="link-icon">
           <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path>
@@ -490,9 +500,11 @@ function updateFiles() {
       downloadBtn.style.padding = "4px";
       downloadBtn.style.borderRadius = "4px";
       downloadBtn.style.transition = "background-color 0.2s";
-      downloadBtn.onmouseenter = () => downloadBtn.style.backgroundColor = "rgba(130,130,130,0.2)";
-      downloadBtn.onmouseleave = () => downloadBtn.style.backgroundColor = "transparent";
-      
+      downloadBtn.onmouseenter = () =>
+        (downloadBtn.style.backgroundColor = "rgba(130,130,130,0.2)");
+      downloadBtn.onmouseleave = () =>
+        (downloadBtn.style.backgroundColor = "transparent");
+
       downloadBtn.innerHTML = `
         <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
@@ -510,17 +522,20 @@ function updateFiles() {
         if (getReq.result) {
           const url = URL.createObjectURL(getReq.result);
           els.filesArea._blobUrls.push(url);
-          
+
           viewLink.href = url;
           downloadBtn.href = url;
 
-          if (typeof isMobileMode !== 'undefined' && isMobileMode) {
+          if (typeof isMobileMode !== "undefined" && isMobileMode) {
             downloadBtn.style.display = "none";
           } else {
             viewLink.draggable = true;
             viewLink.addEventListener("dragstart", (e) => {
               const mimeType = getReq.result.type || "application/octet-stream";
-              e.dataTransfer.setData("DownloadURL", `${mimeType}:${displayStr}:${url}`);
+              e.dataTransfer.setData(
+                "DownloadURL",
+                `${mimeType}:${displayStr}:${url}`,
+              );
             });
           }
         } else {
@@ -1017,11 +1032,10 @@ window.addEventListener("drop", async (e) => {
     const fileTag = getUniqueFileTag(file.name);
     const tx = db.transaction("files", "readwrite");
     tx.objectStore("files").put(file, fileTag);
-    tx.oncomplete = async () => {
-        insertText(fileTag + "\n");
-        updateFiles();
-        await sendFileAtMaxSpeed(file, fileTag, file.name);
-      };
+    tx.oncomplete = () => updateFiles(); // ★保存完了後に欄を更新する
+    insertText(fileTag + "\n");
+    await sendFileAtMaxSpeed(file, fileTag, file.name);
+  }
 });
 els.memoArea.addEventListener("input", () => {
   updateCharCount();
@@ -1219,9 +1233,11 @@ els.fileBtn.onclick = () => {
       const fileTag = getUniqueFileTag(file.name);
       const tx = db.transaction("files", "readwrite");
       tx.objectStore("files").put(file, fileTag);
-      tx.oncomplete = () => updateFiles();
-      insertText(fileTag + "\n");
-      await sendFileAtMaxSpeed(file, fileTag, file.name);
+      tx.oncomplete = async () => {
+        insertText(fileTag + "\n");
+        updateFiles();
+        await sendFileAtMaxSpeed(file, fileTag, file.name);
+      };
     }
   };
   input.click();
@@ -1274,12 +1290,19 @@ function setupDataChannel(dc) {
 
             for (const tag of activeFiles) {
               const fileData = await new Promise((resolve) => {
-                const req = db.transaction("files", "readonly").objectStore("files").get(tag);
+                const req = db
+                  .transaction("files", "readonly")
+                  .objectStore("files")
+                  .get(tag);
                 req.onsuccess = (ev) => resolve(ev.target.result);
                 req.onerror = () => resolve(null);
               });
               if (fileData) {
-                await sendFileAtMaxSpeed(fileData, tag, fileData.name || "shared_file");
+                await sendFileAtMaxSpeed(
+                  fileData,
+                  tag,
+                  fileData.name || "shared_file",
+                );
               }
             }
           };
@@ -1303,12 +1326,13 @@ function setupDataChannel(dc) {
     onOpenHandler();
   }
 
-// 【修正】setupDataChannel 関数内の oncloseHandler を以下に差し替えてください
+  // 【修正】setupDataChannel 関数内の oncloseHandler を以下に差し替えてください
 
   const oncloseHandler = () => {
-    els.memoArea.placeholder = "通信が切断されました。再接続するにはページを更新するかPC側で再度接続操作を行ってください";
+    els.memoArea.placeholder =
+      "通信が切断されました。再接続するにはページを更新するかPC側で再度接続操作を行ってください";
     if (!els.charCount.textContent.includes("切断済")) {
-        els.charCount.textContent = "【切断済】 " + els.charCount.textContent;
+      els.charCount.textContent = "【切断済】 " + els.charCount.textContent;
     }
     els.charCount.style.color = "#f44336";
 
@@ -1331,11 +1355,15 @@ function setupDataChannel(dc) {
   dc.onclose = oncloseHandler;
 
   if (syncPeerConnection) {
-    syncPeerConnection.addEventListener('connectionstatechange', () => {
+    syncPeerConnection.addEventListener("connectionstatechange", () => {
       // ★ 追記：切断済みの場合はエラーを出さないようにガード
       if (!syncPeerConnection) return;
       const state = syncPeerConnection.connectionState;
-      if (state === 'disconnected' || state === 'failed' || state === 'closed') {
+      if (
+        state === "disconnected" ||
+        state === "failed" ||
+        state === "closed"
+      ) {
         oncloseHandler();
       }
     });
@@ -1396,7 +1424,10 @@ document.getElementById("connect-btn").onclick = async () => {
       pc.addEventListener("icecandidate", (e) => {
         if (e.candidate) {
           // パブリックIP(srflx)かリレー(relay)が見つかれば即座に進む
-          if (e.candidate.candidate.includes("srflx") || e.candidate.candidate.includes("relay")) {
+          if (
+            e.candidate.candidate.includes("srflx") ||
+            e.candidate.candidate.includes("relay")
+          ) {
             finish();
           }
         } else {
@@ -1406,7 +1437,7 @@ document.getElementById("connect-btn").onclick = async () => {
       pc.addEventListener("icegatheringstatechange", () => {
         if (pc.iceGatheringState === "complete") finish();
       });
-      setTimeout(finish, 7000); 
+      setTimeout(finish, 7000);
     }
   });
 
@@ -1451,7 +1482,7 @@ document.getElementById("connect-btn").onclick = async () => {
         clearInterval(signalingPollInterval);
         setTimeout(() => {
           const qr = document.getElementById("qr-container");
-          if(qr) qr.style.display = "none";
+          if (qr) qr.style.display = "none";
         }, 2000);
       }
     } catch (e) {}
@@ -1485,6 +1516,7 @@ async function checkMobileConnection() {
       iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
     });
 
+    syncPeerConnection = pc;
     pc.ondatachannel = (e) => {
       setupDataChannel(e.channel);
     };
@@ -1499,7 +1531,10 @@ async function checkMobileConnection() {
       else {
         pc.addEventListener("icecandidate", (e) => {
           if (e.candidate) {
-            if (e.candidate.candidate.includes("srflx") || e.candidate.candidate.includes("relay")) {
+            if (
+              e.candidate.candidate.includes("srflx") ||
+              e.candidate.candidate.includes("relay")
+            ) {
               resolve();
             }
           } else {
