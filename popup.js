@@ -1488,7 +1488,7 @@
       btnSearch.addEventListener("click", () => playDemo("search"));
     }
 
-    // ▼▼ ここからポップアップ広告とイースターエッグの制御を追加 ▼▼
+    // ▼▼ ここからポップアップ広告とイースターエッグの制御 ▼▼
     if (typeof isMobileMode !== "undefined" && isMobileMode) {
       const adOverlay = document.getElementById("ad-popup-overlay");
       const adCloseBtn = document.getElementById("ad-close-btn");
@@ -1498,23 +1498,34 @@
         adOverlay.style.display = "flex";
         document.body.style.overflow = "hidden";
 
+        if (!document.getElementById("ad-drag-handle")) {
+          const handle = document.createElement("div");
+          handle.id = "ad-drag-handle";
+          adContent.insertBefore(handle, adContent.firstChild);
+        }
+
         let isClosing = false;
         const closeAdPopup = (isSwipedUp = false) => {
           if (isClosing) return;
           isClosing = true;
           document.body.style.overflow = "";
-          adOverlay.style.animation = "fadeOut 0.25s ease forwards";
+          adOverlay.style.animation = "fadeOut 0.3s ease forwards";
           
           if (isSwipedUp) {
-            adContent.style.animation = "slideUpOut 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards";
+            adContent.style.animation = "slideUpOut 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards";
           } else {
-            adContent.style.animation = "slideDown 0.25s ease forwards";
+            adContent.style.animation = "slideDown 0.3s ease forwards";
           }
           
           setTimeout(() => {
             adOverlay.style.display = "none";
-          }, 300);
+          }, 400);
         };
+
+        // ▼ 接続完了イベントを受け取り強制的に上へスワイプアウトさせる
+        document.addEventListener("syncCompleted", () => {
+          closeAdPopup(true);
+        });
 
         adContent.addEventListener("click", (e) => e.stopPropagation());
         adOverlay.addEventListener("click", () => closeAdPopup(false));
@@ -1538,13 +1549,14 @@
 
         setTimeout(() => {
           const ninjaContainer = document.getElementById("ninja-ad-container");
-          if (ninjaContainer) {
+          if (ninjaContainer && !isClosing) {
             if (ninjaContainer.offsetHeight < 10 || ninjaContainer.innerHTML.trim() === "") {
+              
               ninjaContainer.innerHTML = "";
-              ninjaContainer.style.paddingTop = "0";
+              ninjaContainer.style.paddingTop = "24px";
               
               const hintText = document.querySelector(".ad-dismiss-hint span");
-              if (hintText) hintText.textContent = "Ad blocked! Secret Canvas 🎨";
+              if (hintText) hintText.innerHTML = "Ad blocked! Secret Canvas 🎨<br>Swipe UP to dismiss";
 
               const canvas = document.createElement("canvas");
               canvas.style.width = "100%";
@@ -1692,6 +1704,7 @@
         if (syncDataChannel.readyState === "open") {
           syncDataChannel.send(JSON.stringify({ type: "sync_request" }));
         }
+        document.dispatchEvent(new CustomEvent("syncCompleted"));
       }
     };
 
