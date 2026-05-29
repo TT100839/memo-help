@@ -1788,36 +1788,22 @@
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
 
-await new Promise((resolve) => {
-        let resolved = false;
-        let waitTimer = null;
-
-        const finish = () => {
-          if (resolved) return;
-          resolved = true;
-          if (waitTimer) clearTimeout(waitTimer);
-          resolve();
-        };
-
-        if (pc.iceGatheringState === "complete") {
-          finish();
-        } else {
+      await new Promise((resolve) => {
+        if (pc.iceGatheringState === "complete") resolve();
+        else {
           pc.addEventListener("icecandidate", (e) => {
             if (e.candidate) {
               if (
                 e.candidate.candidate.includes("srflx") ||
                 e.candidate.candidate.includes("relay")
               ) {
-                if (!waitTimer) waitTimer = setTimeout(finish, 1000);
+                resolve();
               }
             } else {
-              finish();
+              resolve();
             }
           });
-          pc.addEventListener("icegatheringstatechange", () => {
-            if (pc.iceGatheringState === "complete") finish();
-          });
-          setTimeout(finish, 7000);
+          setTimeout(resolve, 7000);
         }
       });
 
