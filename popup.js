@@ -1499,24 +1499,18 @@
         if (e.cancelable) e.preventDefault();
       };
 
+      // ▼▼ ここから差し替え ▼▼
       if (adOverlay && adCloseBtn && adContent) {
-        adOverlay.style.display = "flex";
+        // displayではなく透明度と操作権限を切り替えて表示する
+        adOverlay.style.opacity = "1";
+        adOverlay.style.pointerEvents = "auto";
         
-        // 広告表示中はスクロールをロック（横揺れ防止）
+        // ポップアップのアニメーションを動的に付与
+        adContent.style.animation = "pachinkoShootUp 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) forwards";
+        
+        // 広告表示中はスクロールをロック
         document.body.style.overflow = "hidden";
         document.addEventListener("touchmove", preventScroll, { passive: false });
-
-        adOverlay.style.position = "fixed";
-        adOverlay.style.top = "0";
-        adOverlay.style.left = "0";
-        adOverlay.style.width = "100vw";
-        adOverlay.style.height = "100dvh";
-        
-        adContent.style.position = "absolute";
-        adContent.style.bottom = "0";
-        adContent.style.width = "100%";
-        adContent.style.padding = "24px 16px 16px 16px";
-        adContent.style.boxSizing = "border-box";
 
         if (!document.getElementById("ad-drag-handle")) {
           const handle = document.createElement("div");
@@ -1534,14 +1528,13 @@
           document.body.style.overflow = "";
           document.removeEventListener("touchmove", preventScroll);
           
-          adOverlay.style.animation = "fadeOut 0.1s ease forwards";
+          // display: noneを使わず透明化で非表示にする
+          adOverlay.style.opacity = "0";
+          adOverlay.style.pointerEvents = "none";
           adContent.style.transition = "transform 0.1s linear";
           adContent.style.transform = "translateY(-150vh)";
-          
-          setTimeout(() => {
-            adOverlay.style.display = "none";
-          }, 100);
         };
+// ▲▲ 差し替えここまで ▲▲
 
         adCloseBtn.addEventListener("click", closeAdPopup);
 
