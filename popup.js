@@ -1489,131 +1489,96 @@
     }
 
    if (typeof isMobileMode !== "undefined" && isMobileMode) {
-// ▼▼ ここから差し替え ▼▼
-      const adOverlay = document.getElementById("ad-popup-overlay");
-      const adCloseBtn = document.getElementById("ad-close-btn");
-      const adContent = document.getElementById("ad-popup-content");
+  const adOverlay = document.getElementById("ad-popup-overlay");
+  const adCloseBtn = document.getElementById("ad-close-btn");
+  const adContent = document.getElementById("ad-popup-content");
 
-      // スクロールを禁止するイベントハンドラ
-      const preventScroll = (e) => {
-        if (e.cancelable) e.preventDefault();
-      };
+  const preventScroll = (e) => {
+    if (e.cancelable) e.preventDefault();
+  };
 
-      // ▼▼ ここから差し替え ▼▼
-      if (adOverlay && adCloseBtn && adContent) {
-        // displayではなく透明度と操作権限を切り替えて表示する
-        adOverlay.style.opacity = "1";
-        adOverlay.style.pointerEvents = "auto";
-        
-        // ポップアップのアニメーションを動的に付与
-        adContent.style.animation = "pachinkoShootUp 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) forwards";
-        
-        // 広告表示中はスクロールをロック
-        document.body.style.overflow = "hidden";
-        document.addEventListener("touchmove", preventScroll, { passive: false });
+  if (adOverlay && adCloseBtn && adContent) {
+    // 初期表示：スクロールをロックしてオーバーレイを表示
+    adOverlay.style.display = "flex";
+    document.body.style.overflow = "hidden";
+    document.addEventListener("touchmove", preventScroll, { passive: false });
 
-        if (!document.getElementById("ad-drag-handle")) {
-          const handle = document.createElement("div");
-          handle.id = "ad-drag-handle";
-          adContent.insertBefore(handle, adContent.firstChild);
-        }
+    // 下からスライドインする初期アニメーション
+    adContent.style.transform = "translateY(100%)";
+    requestAnimationFrame(() => {
+      adContent.style.transition = "transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1)";
+      adContent.style.transform = "translateY(0)";
+    });
 
-        let isClosing = false;
-        
-        const closeAdPopup = () => {
-          if (isClosing) return;
-          isClosing = true;
-          
-          // スクロール制限を解除
-          document.body.style.overflow = "";
-          document.removeEventListener("touchmove", preventScroll);
-          
-          // display: noneを使わず透明化で非表示にする
-          adOverlay.style.opacity = "0";
-          adOverlay.style.pointerEvents = "none";
-          adContent.style.transition = "transform 0.1s linear";
-          adContent.style.transform = "translateY(-150vh)";
-        };
-// ▲▲ 差し替えここまで ▲▲
+    let isClosing = false;
+    
+    // 広告を閉じる関数（0.1秒で上空へ吹き飛ぶ）
+    const closeAdPopup = () => {
+      if (isClosing) return;
+      isClosing = true;
+      
+      adContent.style.transition = "transform 0.1s cubic-bezier(0.1, 0.9, 0.2, 1)";
+      adContent.style.transform = "translateY(-150vh)"; // 画面外上部へ飛ばす
+      
+      // 0.15秒後に要素を隠し、スクロールを復元
+      setTimeout(() => {
+        adOverlay.style.display = "none";
+        document.body.style.overflow = "";
+        document.removeEventListener("touchmove", preventScroll);
+      }, 150);
+    };
 
-        adCloseBtn.addEventListener("click", closeAdPopup);
-
-        adOverlay.addEventListener("click", (e) => {
-          if (e.target === adOverlay || e.target.closest('.ad-dismiss-hint')) {
-            closeAdPopup();
-          }
-        });
-
-        let startY = 0;
-        let currentY = 0;
-        let isDragging = false;
-
-        adContent.addEventListener("touchstart", (e) => {
-          if (isClosing) return;
-          isDragging = true;
-          startY = e.touches[0].clientY;
-          currentY = startY;
-          adContent.style.animation = "none";
-          adContent.style.transition = "none";
-        }, { passive: true });
-
-        adContent.addEventListener("touchmove", (e) => {
-          if (!isDragging || isClosing) return;
-          currentY = e.touches[0].clientY;
-          const deltaY = currentY - startY;
-          
-          adContent.style.transform = `translateY(${deltaY}px)`;
-        }, { passive: true });
-
-        adContent.addEventListener("touchend", () => {
-          if (!isDragging || isClosing) return;
-          isDragging = false;
-          
-          const deltaY = currentY - startY;
-          
-          if (Math.abs(deltaY) > 0) {
-            closeAdPopup();
-          } else {
-            adContent.style.transition = "transform 0.1s ease";
-            adContent.style.transform = "translateY(0)";
-          }
-        });
-
-        document.addEventListener("syncCompleted", closeAdPopup);
-
-        // 広告ブロックチェック処理
-        setTimeout(() => {
-          const ninjaContainer = document.getElementById("ninja-ad-container");
-          if (ninjaContainer && !isClosing) {
-            let isBlocked = false;
-            const iframe = ninjaContainer.querySelector("iframe");
-
-            if (iframe) {
-              try {
-                const body = iframe.contentWindow?.document?.body;
-                if (!body || body.innerHTML.trim() === "" || body.offsetHeight < 10) {
-                  isBlocked = true;
-                }
-              } catch (e) {
-                isBlocked = true;
-              }
-            } else {
-              isBlocked = true;
-            }
-
-            if (isBlocked) {
-              ninjaContainer.innerHTML = "";
-              ninjaContainer.style.paddingTop = "8px";
-              const hintText = document.querySelector(".ad-dismiss-hint span");
-              if (hintText) {
-                hintText.innerHTML = "Ad blocked!<br>Swipe UP to dismiss";
-              }
-            }
-          }
-        }, 1500);
+    // ×ボタン または 余白タップで閉じる
+    adCloseBtn.addEventListener("click", closeAdPopup);
+    adOverlay.addEventListener("click", (e) => {
+      // 広告本体以外の背景部分をクリックした場合のみ発火
+      if (e.target === adOverlay || e.target.closest('.ad-dismiss-hint')) {
+        closeAdPopup();
       }
-// ▲▲ 差し替えここまで ▲▲
-    }
+    });
+
+    let startY = 0;
+    let currentY = 0;
+    let isDragging = false;
+
+    adContent.addEventListener("touchstart", (e) => {
+      if (isClosing) return;
+      isDragging = true;
+      startY = e.touches[0].clientY;
+      currentY = startY;
+      // ドラッグ中はアニメーションを切って指に吸着させる
+      adContent.style.transition = "none";
+    }, { passive: true });
+
+    adContent.addEventListener("touchmove", (e) => {
+      if (!isDragging || isClosing) return;
+      currentY = e.touches[0].clientY;
+      const deltaY = currentY - startY;
+      adContent.style.transform = `translateY(${deltaY}px)`;
+    }, { passive: true });
+
+    adContent.addEventListener("touchend", () => {
+      if (!isDragging || isClosing) return;
+      isDragging = false;
+      
+      const deltaY = currentY - startY;
+      
+      // 指のブレ（タップ時の微小なズレ）を許容するため閾値を3pxに設定
+      // 3px以上動かして離した場合は無条件で上空へ吹き飛ぶ
+      if (Math.abs(deltaY) > 3) {
+        closeAdPopup();
+      } else {
+        // 動かしていない（タップ操作）場合は元の位置に戻す
+        adContent.style.transition = "transform 0.2s ease";
+        adContent.style.transform = "translateY(0)";
+      }
+    });
+
+    // 同期完了時にも自動で閉じる
+    document.addEventListener("syncCompleted", closeAdPopup);
+  }
+}
+    
   });
 
   els.fileBtn.onclick = () => {
