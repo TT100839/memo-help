@@ -49,6 +49,18 @@
       #help-btn { 
         display: none !important; 
       }
+      /* 今後の広告スペース用の設定 */
+      #ad-container {
+        width: 100%;
+        height: 100px;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        margin-top: auto;
+        margin-top: 16px;
+        font-size: 12px;
+        border-radius: 8px;
+      }
     </style>
   </head>
   <body>
@@ -139,6 +151,9 @@
 
     <div id="links-area"></div>
     <div id="files-area" style="display: none;"></div>
+    <div id="ad-container">
+<script src="https://adm.shinobi.jp/s/364137cef4e73e2d418b4bb9d3dc431b"></script>
+    </div>
 <div id="tab-context-menu" class="context-menu" style="display: none;">
       <button id="menu-duplicate-tab">
         <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
@@ -157,24 +172,27 @@
     </div>
     </div>
 <script src="popup.js"></script>
-<div id="ad-popup-overlay">
-      <div class="ad-dismiss-hint">
-        <svg viewBox="0 0 24 24" width="48" height="48" fill="white" opacity="0.8">
-          <path d="M16.59 10.59L12 6l-4.59 4.59L8.83 12l3.17-3.17V18h2v-5.17l3.17 3.17z"/>
-        </svg>
-        <span style="color: white; font-weight: bold; margin-top: 8px; opacity: 0.8; font-size: 14px; letter-spacing: 1px;">Swipe UP</span>
-      </div>
-      
-      <div id="ad-popup-content">
-        <button id="ad-close-btn" title="閉じる">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
-            <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
-          </svg>
-        </button>
-        <div id="ninja-ad-container">
-          <script src="https://adm.shinobi.jp/s/5eaf2afc20e281b8c881eee2dc99bcde"></script>
-          </div>
-      </div>
+<div id="ad-popup-overlay" style="display: none;">
+  <div class="ad-dismiss-hint" style="pointer-events: none;">
+    <svg viewBox="0 0 24 24" width="48" height="48" fill="white" opacity="0.8">
+      <path d="M16.59 10.59L12 6l-4.59 4.59L8.83 12l3.17-3.17V18h2v-5.17l3.17 3.17z"/>
+    </svg>
+    <span style="color: white; font-weight: bold; margin-top: 8px; opacity: 0.8; font-size: 14px; letter-spacing: 1px;">Swipe UP</span>
+  </div>
+  
+  <div id="ad-popup-content" style="position: relative; background: white; width: 100%; border-radius: 16px 16px 0 0; padding: 24px 16px 16px; box-sizing: border-box;">
+    <div id="ad-drag-handle" style="position: absolute; top: 8px; left: 50%; transform: translateX(-50%); width: 40px; height: 5px; background: #d2d2d7; border-radius: 3px;"></div>
+    
+    <button id="ad-close-btn" title="閉じる" style="position: absolute; top: 8px; right: 12px; background: none; border: none; color: #86868b; padding: 4px; cursor: pointer;">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+        <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+      </svg>
+    </button>
+    
+    <div id="ninja-ad-container" style="display: flex; justify-content: center;">
+      <script src="https://adm.shinobi.jp/s/5eaf2afc20e281b8c881eee2dc99bcde"></script>
     </div>
+  </div>
+</div>
   </body>
 </html>
