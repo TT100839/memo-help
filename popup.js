@@ -44,7 +44,7 @@
         console.error("File send error:", e);
       }
     }
-    
+
     isSendingFile = false;
   }
   async function sendFileAtMaxSpeed(file, tag, fileName) {
@@ -85,8 +85,8 @@
         offset += chunkSize;
 
         // ★パケット送信の間に息継ぎを入れ、テキスト同期等の割り込みを許可する
-        if (offset % (chunkSize * 10) === 0) { 
-          await new Promise(resolve => setTimeout(resolve, 0));
+        if (offset % (chunkSize * 10) === 0) {
+          await new Promise((resolve) => setTimeout(resolve, 0));
         }
       }
     };
@@ -1195,7 +1195,7 @@
       tx.objectStore("files").put(file, fileTag);
       tx.oncomplete = () => updateFiles();
       insertText(fileTag + "\n");
-      enqueueFile(file, fileTag, file.name); 
+      enqueueFile(file, fileTag, file.name);
     }
   });
   els.memoArea.addEventListener("paste", (e) => {
@@ -1488,12 +1488,41 @@
       btnSearch.addEventListener("click", () => playDemo("search"));
     }
 
-    // ▼▼ ここからポップアップ広告とイースターエッグの制御 ▼▼
     if (typeof isMobileMode !== "undefined" && isMobileMode) {
+      // ★追加：広告をメイン通信から切り離して安全に読み込む関数
+      const loadNinjaAd = (containerId, adId) => {
+        const container = document.getElementById(containerId);
+        if (!container) return;
+
+        // iframeを作成して通信干渉とページ破壊を防ぐ
+        const iframe = document.createElement("iframe");
+        iframe.style.width = "100%";
+        iframe.style.height = "100%";
+        iframe.style.border = "none";
+        iframe.scrolling = "no";
+        container.appendChild(iframe);
+
+        const doc = iframe.contentWindow.document;
+        doc.open();
+        doc.write(`
+          <!DOCTYPE html>
+          <html>
+          <head><style>body{margin:0;padding:0;display:flex;justify-content:center;align-items:center;overflow:hidden;}</style></head>
+          <body>
+            <script src="https://adm.shinobi.jp/s/${adId}"><\\/script>
+          </body>
+          </html>
+        `);
+        doc.close();
+      };
+
+      // ★広告の安全な読み込みを実行
+      loadNinjaAd("ninja-ad-container", "5eaf2afc20e281b8c881eee2dc99bcde");
+      loadNinjaAd("ad-container", "364137cef4e73e2d418b4bb9d3dc431b");
+
       const adOverlay = document.getElementById("ad-popup-overlay");
       const adCloseBtn = document.getElementById("ad-close-btn");
       const adContent = document.getElementById("ad-popup-content");
-
       if (adOverlay && adCloseBtn && adContent) {
         adOverlay.style.display = "flex";
         document.body.style.overflow = "hidden";
@@ -1510,13 +1539,14 @@
           isClosing = true;
           document.body.style.overflow = "";
           adOverlay.style.animation = "fadeOut 0.3s ease forwards";
-          
+
           if (isSwipedUp) {
-            adContent.style.animation = "slideUpOut 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards";
+            adContent.style.animation =
+              "slideUpOut 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards";
           } else {
             adContent.style.animation = "slideDown 0.3s ease forwards";
           }
-          
+
           setTimeout(() => {
             adOverlay.style.display = "none";
           }, 400);
@@ -1532,13 +1562,21 @@
         adCloseBtn.addEventListener("click", () => closeAdPopup(false));
 
         let startY = 0;
-        adOverlay.addEventListener("touchstart", (e) => {
-          startY = e.touches[0].clientY;
-        }, { passive: true });
+        adOverlay.addEventListener(
+          "touchstart",
+          (e) => {
+            startY = e.touches[0].clientY;
+          },
+          { passive: true },
+        );
 
-        adOverlay.addEventListener("touchmove", (e) => {
-          if (e.cancelable) e.preventDefault();
-        }, { passive: false });
+        adOverlay.addEventListener(
+          "touchmove",
+          (e) => {
+            if (e.cancelable) e.preventDefault();
+          },
+          { passive: false },
+        );
 
         adOverlay.addEventListener("touchend", (e) => {
           const endY = e.changedTouches[0].clientY;
@@ -1550,14 +1588,35 @@
         setTimeout(() => {
           const ninjaContainer = document.getElementById("ninja-ad-container");
           if (ninjaContainer && !isClosing) {
-            if (ninjaContainer.offsetHeight < 10 || ninjaContainer.innerHTML.trim() === "") {
-              
+            let isBlocked = false;
+            const iframe = ninjaContainer.querySelector("iframe");
+
+            if (iframe) {
+              try {
+                const body = iframe.contentWindow.document.body;
+                // 中身が生成されていないか、極端に小さい場合はブロックと判定
+                if (
+                  !body ||
+                  body.innerHTML.trim() === "" ||
+                  body.offsetHeight < 10
+                ) {
+                  isBlocked = true;
+                }
+              } catch (e) {
+                isBlocked = true; // クロスドメインエラー等もブロック扱い
+              }
+            } else {
+              isBlocked = true;
+            }
+
+            if (isBlocked) {
               ninjaContainer.innerHTML = "";
               ninjaContainer.style.paddingTop = "24px";
-              
-              const hintText = document.querySelector(".ad-dismiss-hint span");
-              if (hintText) hintText.innerHTML = "Ad blocked! Secret Canvas 🎨<br>Swipe UP to dismiss";
 
+              const hintText = document.querySelector(".ad-dismiss-hint span");
+              if (hintText)
+                hintText.innerHTML =
+                  "Ad blocked! Secret Canvas 🎨<br>Swipe UP to dismiss";
               const canvas = document.createElement("canvas");
               canvas.style.width = "100%";
               canvas.style.height = "100%";
@@ -1603,7 +1662,9 @@
                   isDrawing = false;
                 };
 
-                canvas.addEventListener("touchstart", startDraw, { passive: false });
+                canvas.addEventListener("touchstart", startDraw, {
+                  passive: false,
+                });
                 canvas.addEventListener("touchmove", draw, { passive: false });
                 canvas.addEventListener("touchend", endDraw);
                 canvas.addEventListener("mousedown", startDraw);
