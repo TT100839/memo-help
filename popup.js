@@ -1660,35 +1660,24 @@
 
     connectBtn.title = "Searching route(2/3)...";
 
-    await new Promise((resolve) => {
-      let resolved = false;
-      const finish = () => {
-        if (resolved) return;
-        resolved = true;
-        resolve();
-      };
+await new Promise((resolve) => {
+        let resolved = false;
+        const finish = () => {
+          if (resolved) return;
+          resolved = true;
+          resolve();
+        };
 
-      if (pc.iceGatheringState === "complete") {
-        finish();
-      } else {
-        pc.addEventListener("icecandidate", (e) => {
-          if (e.candidate) {
-            if (
-              e.candidate.candidate.includes("srflx") ||
-              e.candidate.candidate.includes("relay")
-            ) {
-              finish();
-            }
-          } else {
-            finish();
-          }
-        });
-        pc.addEventListener("icegatheringstatechange", () => {
-          if (pc.iceGatheringState === "complete") finish();
-        });
-        setTimeout(finish, 7000);
-      }
-    });
+        if (pc.iceGatheringState === "complete") {
+          finish();
+        } else {
+          pc.addEventListener("icecandidate", (e) => {
+            if (!e.candidate) finish();
+          });
+          
+          setTimeout(finish, 5000);
+        }
+      });
 
     connectBtn.title = "Registering server(3/3)...";
     try {
