@@ -1488,7 +1488,7 @@
       btnSearch.addEventListener("click", () => playDemo("search"));
     }
 
-   if (typeof isMobileMode !== "undefined" && isMobileMode) {
+if (typeof isMobileMode !== "undefined" && isMobileMode) {
   const adOverlay = document.getElementById("ad-popup-overlay");
   const adCloseBtn = document.getElementById("ad-close-btn");
   const adContent = document.getElementById("ad-popup-content");
@@ -1498,29 +1498,30 @@
   };
 
   if (adOverlay && adCloseBtn && adContent) {
-    // 初期表示：スクロールをロックしてオーバーレイを表示
+    // スクロールをロックしてオーバーレイを表示
     adOverlay.style.display = "flex";
     document.body.style.overflow = "hidden";
     document.addEventListener("touchmove", preventScroll, { passive: false });
 
-    // 下からスライドインする初期アニメーション
-    adContent.style.transform = "translateY(100%)";
-    requestAnimationFrame(() => {
+    // アニメーションの不発を防ぐため、初期位置を固定してから遅延実行
+    adContent.style.transition = "none";
+    adContent.style.transform = "translateY(100vh)"; 
+    
+    setTimeout(() => {
       adContent.style.transition = "transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1)";
       adContent.style.transform = "translateY(0)";
-    });
+    }, 50);
 
     let isClosing = false;
     
-    // 広告を閉じる関数（0.1秒で上空へ吹き飛ぶ）
+    // 広告を閉じる関数（0.15秒で上空へ吹き飛ばす）
     const closeAdPopup = () => {
       if (isClosing) return;
       isClosing = true;
       
-      adContent.style.transition = "transform 0.1s cubic-bezier(0.1, 0.9, 0.2, 1)";
-      adContent.style.transform = "translateY(-150vh)"; // 画面外上部へ飛ばす
+      adContent.style.transition = "transform 0.15s cubic-bezier(0.1, 0.9, 0.2, 1)";
+      adContent.style.transform = "translateY(-150vh)";
       
-      // 0.15秒後に要素を隠し、スクロールを復元
       setTimeout(() => {
         adOverlay.style.display = "none";
         document.body.style.overflow = "";
@@ -1528,10 +1529,9 @@
       }, 150);
     };
 
-    // ×ボタン または 余白タップで閉じる
     adCloseBtn.addEventListener("click", closeAdPopup);
+
     adOverlay.addEventListener("click", (e) => {
-      // 広告本体以外の背景部分をクリックした場合のみ発火
       if (e.target === adOverlay || e.target.closest('.ad-dismiss-hint')) {
         closeAdPopup();
       }
@@ -1546,7 +1546,6 @@
       isDragging = true;
       startY = e.touches[0].clientY;
       currentY = startY;
-      // ドラッグ中はアニメーションを切って指に吸着させる
       adContent.style.transition = "none";
     }, { passive: true });
 
@@ -1563,19 +1562,48 @@
       
       const deltaY = currentY - startY;
       
-      // 指のブレ（タップ時の微小なズレ）を許容するため閾値を3pxに設定
-      // 3px以上動かして離した場合は無条件で上空へ吹き飛ぶ
+      // 指のブレを許容するため、3px以上動かして離したら吹き飛ばす
       if (Math.abs(deltaY) > 3) {
         closeAdPopup();
       } else {
-        // 動かしていない（タップ操作）場合は元の位置に戻す
         adContent.style.transition = "transform 0.2s ease";
         adContent.style.transform = "translateY(0)";
       }
     });
 
-    // 同期完了時にも自動で閉じる
+    // PCとの同期完了時に自動で閉じる
     document.addEventListener("syncCompleted", closeAdPopup);
+
+    // 広告ブロック検知（エラー停止を防ぐフェイルセーフ）
+    setTimeout(() => {
+      const ninjaContainer = document.getElementById("ninja-ad-container");
+      if (ninjaContainer && !isClosing) {
+        let isBlocked = false;
+        const iframe = ninjaContainer.querySelector("iframe");
+
+        if (iframe) {
+          try {
+            const body = iframe.contentWindow?.document?.body;
+            if (!body || body.innerHTML.trim() === "" || body.offsetHeight < 10) {
+              isBlocked = true;
+            }
+          } catch (e) {
+            isBlocked = true;
+          }
+        } else {
+          isBlocked = true;
+        }
+
+        if (isBlocked) {
+          ninjaContainer.innerHTML = "";
+          ninjaContainer.style.paddingTop = "8px";
+          const hintText = document.querySelector(".ad-dismiss-hint span");
+          if (hintText) {
+            hintText.innerHTML = "Ad blocked!<br>Swipe UP to dismiss";
+          }
+        }
+      }
+    }, 1500);
   }
 }
     
