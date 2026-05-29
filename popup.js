@@ -1490,52 +1490,69 @@
 
     if (typeof isMobileMode !== "undefined" && isMobileMode) {
       // ★追加：広告をメイン通信から切り離して安全に読み込む関数
+// ★広告をメイン通信から切り離して安全に読み込む関数（srcdoc方式に変更）
       const loadNinjaAd = (containerId, adId) => {
         const container = document.getElementById(containerId);
         if (!container) return;
 
-        // iframeを作成して通信干渉とページ破壊を防ぐ
         const iframe = document.createElement("iframe");
         iframe.style.width = "100%";
         iframe.style.height = "100%";
         iframe.style.border = "none";
         iframe.scrolling = "no";
-        container.appendChild(iframe);
-
-        const doc = iframe.contentWindow.document;
-        doc.open();
-        doc.write(`
+        // document.writeではなくsrcdocを利用してCSPブロックを回避
+        iframe.srcdoc = `
           <!DOCTYPE html>
           <html>
           <head><style>body{margin:0;padding:0;display:flex;justify-content:center;align-items:center;overflow:hidden;}</style></head>
           <body>
-            <script src="https://adm.shinobi.jp/s/${adId}"><\\/script>
+            <script src="https://adm.shinobi.jp/s/${adId}"></script>
           </body>
           </html>
-        `);
-        doc.close();
+        `;
+        container.appendChild(iframe);
       };
 
-      // ★広告の安全な読み込みを実行
       loadNinjaAd("ninja-ad-container", "5eaf2afc20e281b8c881eee2dc99bcde");
       loadNinjaAd("ad-container", "364137cef4e73e2d418b4bb9d3dc431b");
 
-      // ▼▼ ここから差し替え ▼▼
+// ▼▼ ここから差し替え ▼▼
       const adOverlay = document.getElementById("ad-popup-overlay");
       const adCloseBtn = document.getElementById("ad-close-btn");
       const adContent = document.getElementById("ad-popup-content");
 
+      // スクロール固定用の関数
+      const lockScroll = () => {
+        document.body.style.position = 'fixed';
+        document.body.style.width = '100%';
+        document.body.style.top = `-${window.scrollY}px`;
+      };
+
+      // スクロール復元用の関数
+      const unlockScroll = () => {
+        const scrollY = document.body.style.top;
+        document.body.style.position = '';
+        document.body.style.width = '';
+        document.body.style.top = '';
+        window.scrollTo(0, parseInt(scrollY || '0') * -1);
+      };
+
       if (adOverlay && adCloseBtn && adContent) {
         adOverlay.style.display = "flex";
+        
+        // 広告表示中はスクロールを完全にロック
+        lockScroll();
 
-        // スクロールを完全に防ぐためのイベントハンドラ
-        const preventScroll = (e) => {
-          if (e.cancelable) e.preventDefault();
-        };
-        document.addEventListener("touchmove", preventScroll, {
-          passive: false,
-        });
-
+        // 強制的に画面下部に固定するスタイルを追加
+        adOverlay.style.position = "fixed";
+        adOverlay.style.top = "0";
+        adOverlay.style.left = "0";
+        adOverlay.style.width = "100vw";
+        adOverlay.style.height = "100vh";
+        
+        adContent.style.position = "absolute";
+        adContent.style.bottom = "0";
+        adContent.style.width = "100%";
         adContent.style.padding = "24px 16px 16px 16px";
         adContent.style.boxSizing = "border-box";
 
@@ -1546,30 +1563,28 @@
         }
 
         let isClosing = false;
-
-        // 閉じる・飛ばすアニメーション処理（0.1秒で上へ）
+        
+        // 0.1秒で上に飛んで消えるアニメーション
         const closeAdPopup = () => {
           if (isClosing) return;
           isClosing = true;
-
-          // スクロール制限を解除して通常の動作に戻す
-          document.removeEventListener("touchmove", preventScroll);
-
+          
+          unlockScroll(); // スクロール制限を解除
+          
           adOverlay.style.animation = "fadeOut 0.1s ease forwards";
           adContent.style.transition = "transform 0.1s linear";
-          adContent.style.transform = "translateY(-150vh)"; // 上へ飛ぶ
-
+          adContent.style.transform = "translateY(-150vh)";
+          
           setTimeout(() => {
             adOverlay.style.display = "none";
           }, 100);
         };
 
-        // ×ボタンで消す
-        adCloseBtn.addEventListener("click", () => closeAdPopup());
+        adCloseBtn.addEventListener("click", closeAdPopup);
 
-        // 上部の空白（オーバーレイ背景）タップで消す
+        // 背景および上部余白タップで消す処理
         adOverlay.addEventListener("click", (e) => {
-          if (e.target === adOverlay || e.target.closest(".ad-dismiss-hint")) {
+          if (e.target === adOverlay || e.target.closest('.ad-dismiss-hint')) {
             closeAdPopup();
           }
         });
@@ -1579,50 +1594,39 @@
         let currentY = 0;
         let isDragging = false;
 
-        adContent.addEventListener(
-          "touchstart",
-          (e) => {
-            if (isClosing) return;
-            isDragging = true;
-            startY = e.touches[0].clientY;
-            currentY = startY;
-            adContent.style.animation = "none";
-            adContent.style.transition = "none";
-          },
-          { passive: true },
-        );
+        adContent.addEventListener("touchstart", (e) => {
+          if (isClosing) return;
+          isDragging = true;
+          startY = e.touches[0].clientY;
+          currentY = startY;
+          adContent.style.animation = "none";
+          adContent.style.transition = "none";
+        }, { passive: true });
 
-        adContent.addEventListener(
-          "touchmove",
-          (e) => {
-            if (!isDragging || isClosing) return;
-            currentY = e.touches[0].clientY;
-            const deltaY = currentY - startY;
-
-            adContent.style.transform = `translateY(${deltaY}px)`;
-          },
-          { passive: true },
-        ); // passive: true にして親のスクロール防止に委ねる
+        adContent.addEventListener("touchmove", (e) => {
+          if (!isDragging || isClosing) return;
+          currentY = e.touches[0].clientY;
+          const deltaY = currentY - startY;
+          
+          adContent.style.transform = `translateY(${deltaY}px)`;
+        }, { passive: true });
 
         adContent.addEventListener("touchend", () => {
           if (!isDragging || isClosing) return;
           isDragging = false;
-
+          
           const deltaY = currentY - startY;
-
-          // 少しでも（ピクセル単位で）動いていたら0.1秒で上に飛ばす
+          
+          // ピクセル単位で少しでも動いていれば消す
           if (Math.abs(deltaY) > 0) {
             closeAdPopup();
           } else {
-            // 動いていない場合は元の位置に戻す（タップ動作を妨げないため）
             adContent.style.transition = "transform 0.1s ease";
             adContent.style.transform = "translateY(0)";
           }
         });
 
-        document.addEventListener("syncCompleted", () => {
-          closeAdPopup();
-        });
+        document.addEventListener("syncCompleted", closeAdPopup);
 
         setTimeout(() => {
           const ninjaContainer = document.getElementById("ninja-ad-container");
@@ -1632,12 +1636,8 @@
 
             if (iframe) {
               try {
-                const body = iframe.contentWindow.document.body;
-                if (
-                  !body ||
-                  body.innerHTML.trim() === "" ||
-                  body.offsetHeight < 10
-                ) {
+                const body = iframe.contentWindow?.document?.body;
+                if (!body || body.innerHTML.trim() === "" || body.offsetHeight < 10) {
                   isBlocked = true;
                 }
               } catch (e) {
@@ -1658,6 +1658,8 @@
           }
         }, 1500);
       }
+// ▲▲ 差し替えここまで ▲▲
+
       // ▲▲ 差し替えここまで ▲▲
     }
   });
