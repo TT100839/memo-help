@@ -1489,62 +1489,114 @@
     }
 
     // ▼▼ ここからポップアップ広告とイースターエッグの制御を追加 ▼▼
+// ▼▼ ここからポップアップ広告とイースターエッグの制御 ▼▼
     if (typeof isMobileMode !== "undefined" && isMobileMode) {
       const adOverlay = document.getElementById("ad-popup-overlay");
       const adCloseBtn = document.getElementById("ad-close-btn");
       const adContent = document.getElementById("ad-popup-content");
 
       if (adOverlay && adCloseBtn && adContent) {
-        adOverlay.style.display = "flex";
+        adOverlay.style.display = "block";
         document.body.style.overflow = "hidden";
 
+        // 動的グリップ（掴む場所）の生成
+        if (!document.getElementById("ad-drag-handle")) {
+          const handle = document.createElement("div");
+          handle.id = "ad-drag-handle";
+          adContent.insertBefore(handle, adContent.firstChild);
+        }
+
         let isClosing = false;
-        const closeAdPopup = (isSwipedUp = false) => {
+        let animationFrameId;
+
+        const closeAdPopup = () => {
           if (isClosing) return;
           isClosing = true;
+          cancelAnimationFrame(animationFrameId);
           document.body.style.overflow = "";
-          adOverlay.style.animation = "fadeOut 0.25s ease forwards";
-          
-          if (isSwipedUp) {
-            adContent.style.animation = "slideUpOut 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards";
-          } else {
-            adContent.style.animation = "slideDown 0.25s ease forwards";
-          }
-          
+          adOverlay.style.animation = "fadeOut 0.3s ease forwards";
+          adContent.style.transition = "transform 0.3s ease, opacity 0.3s ease";
+          adContent.style.transform += " scale(0.8)";
+          adContent.style.opacity = "0";
           setTimeout(() => {
             adOverlay.style.display = "none";
           }, 300);
         };
 
         adContent.addEventListener("click", (e) => e.stopPropagation());
-        adOverlay.addEventListener("click", () => closeAdPopup(false));
-        adCloseBtn.addEventListener("click", () => closeAdPopup(false));
+        adOverlay.addEventListener("click", () => closeAdPopup());
+        adCloseBtn.addEventListener("click", () => closeAdPopup());
 
-        let startY = 0;
-        adOverlay.addEventListener("touchstart", (e) => {
-          startY = e.touches[0].clientY;
+        // --- 風船浮上 ＆ ドラッグ移動ロジック ---
+        let adX = 0;
+        let adY = window.innerHeight; // 初期位置：画面の一番下
+        let velocityY = -1.5; // 浮上スピード（マイナスで上方向）
+        let isDragging = false;
+        let dragStartX = 0;
+        let dragStartY = 0;
+        let initialAdX = 0;
+        let initialAdY = 0;
+
+        const animateFloat = () => {
+          if (!isDragging) {
+            adY += velocityY;
+            // 画面上部へ完全に飛び去ったら閉じる
+            if (adY < -adContent.offsetHeight - 50) {
+              closeAdPopup();
+              return;
+            }
+          }
+          adContent.style.transform = `translate(${adX}px, ${adY}px)`;
+          animationFrameId = requestAnimationFrame(animateFloat);
+        };
+        
+        // 浮上アニメーション開始
+        animationFrameId = requestAnimationFrame(animateFloat);
+
+        const dragHandle = document.getElementById("ad-drag-handle");
+        
+        // グリップを掴んだ時（移動モードON）
+        dragHandle.addEventListener("touchstart", (e) => {
+          isDragging = true;
+          dragStartX = e.touches[0].clientX;
+          dragStartY = e.touches[0].clientY;
+          initialAdX = adX;
+          initialAdY = adY;
         }, { passive: true });
 
+        // 広告本体やキャンバスに触れた時（移動はしないが、押しやすくするために浮上を一時停止する）
+        adContent.addEventListener("touchstart", () => {
+          isDragging = true;
+        }, { passive: true });
+
+        // ドラッグして動かしている時
         adOverlay.addEventListener("touchmove", (e) => {
-          if (e.cancelable) e.preventDefault();
+          if (e.cancelable) e.preventDefault(); // 背景スクロール防止
+          
+          if (isDragging && dragStartX !== 0) {
+            const touch = e.touches[0];
+            adX = initialAdX + (touch.clientX - dragStartX);
+            adY = initialAdY + (touch.clientY - dragStartY);
+          }
         }, { passive: false });
 
-        adOverlay.addEventListener("touchend", (e) => {
-          const endY = e.changedTouches[0].clientY;
-          if (startY - endY > 40) {
-            closeAdPopup(true);
-          }
+        // 指を離した時（再び浮上開始）
+        adOverlay.addEventListener("touchend", () => {
+          isDragging = false;
+          dragStartX = 0;
         });
 
+        // 広告ブロック (AdBlock) 対策 と イースターエッグ
         setTimeout(() => {
           const ninjaContainer = document.getElementById("ninja-ad-container");
-          if (ninjaContainer) {
+          if (ninjaContainer && !isClosing) {
             if (ninjaContainer.offsetHeight < 10 || ninjaContainer.innerHTML.trim() === "") {
+              
               ninjaContainer.innerHTML = "";
-              ninjaContainer.style.paddingTop = "0";
+              ninjaContainer.style.paddingTop = "32px"; // グリップ用の余白
               
               const hintText = document.querySelector(".ad-dismiss-hint span");
-              if (hintText) hintText.textContent = "Ad blocked! Secret Canvas 🎨";
+              if (hintText) hintText.innerHTML = "Ad blocked! Secret Canvas 🎨<br>Grab top bar to move!";
 
               const canvas = document.createElement("canvas");
               canvas.style.width = "100%";
@@ -1604,6 +1656,7 @@
         }, 1500);
       }
     }
+    // ▲▲ 追加ここまで ▲▲
     // ▲▲ 追加ここまで ▲▲
   });
   els.fileBtn.onclick = () => {
