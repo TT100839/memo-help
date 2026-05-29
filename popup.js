@@ -44,7 +44,7 @@
         console.error("File send error:", e);
       }
     }
-
+    
     isSendingFile = false;
   }
   async function sendFileAtMaxSpeed(file, tag, fileName) {
@@ -85,8 +85,8 @@
         offset += chunkSize;
 
         // ★パケット送信の間に息継ぎを入れ、テキスト同期等の割り込みを許可する
-        if (offset % (chunkSize * 10) === 0) {
-          await new Promise((resolve) => setTimeout(resolve, 0));
+        if (offset % (chunkSize * 10) === 0) { 
+          await new Promise(resolve => setTimeout(resolve, 0));
         }
       }
     };
@@ -1195,7 +1195,7 @@
       tx.objectStore("files").put(file, fileTag);
       tx.oncomplete = () => updateFiles();
       insertText(fileTag + "\n");
-      enqueueFile(file, fileTag, file.name);
+      enqueueFile(file, fileTag, file.name); 
     }
   });
   els.memoArea.addEventListener("paste", (e) => {
@@ -1487,128 +1487,7 @@
     if (btnSearch) {
       btnSearch.addEventListener("click", () => playDemo("search"));
     }
-
-if (typeof isMobileMode !== "undefined" && isMobileMode) {
-  const adOverlay = document.getElementById("ad-popup-overlay");
-  const adCloseBtn = document.getElementById("ad-close-btn");
-  const adContent = document.getElementById("ad-popup-content");
-
-  const preventScroll = (e) => {
-    if (e.cancelable) e.preventDefault();
-  };
-
-  if (adOverlay && adCloseBtn && adContent) {
-    // スクロールをロックしてオーバーレイを表示
-    adOverlay.style.display = "flex";
-    document.body.style.overflow = "hidden";
-    document.addEventListener("touchmove", preventScroll, { passive: false });
-
-    // アニメーションの不発を防ぐため、初期位置を固定してから遅延実行
-    adContent.style.transition = "none";
-    adContent.style.transform = "translateY(100vh)"; 
-    
-    setTimeout(() => {
-      adContent.style.transition = "transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1)";
-      adContent.style.transform = "translateY(0)";
-    }, 50);
-
-    let isClosing = false;
-    
-    // 広告を閉じる関数（0.15秒で上空へ吹き飛ばす）
-    const closeAdPopup = () => {
-      if (isClosing) return;
-      isClosing = true;
-      
-      adContent.style.transition = "transform 0.15s cubic-bezier(0.1, 0.9, 0.2, 1)";
-      adContent.style.transform = "translateY(-150vh)";
-      
-      setTimeout(() => {
-        adOverlay.style.display = "none";
-        document.body.style.overflow = "";
-        document.removeEventListener("touchmove", preventScroll);
-      }, 150);
-    };
-
-    adCloseBtn.addEventListener("click", closeAdPopup);
-
-    adOverlay.addEventListener("click", (e) => {
-      if (e.target === adOverlay || e.target.closest('.ad-dismiss-hint')) {
-        closeAdPopup();
-      }
-    });
-
-    let startY = 0;
-    let currentY = 0;
-    let isDragging = false;
-
-    adContent.addEventListener("touchstart", (e) => {
-      if (isClosing) return;
-      isDragging = true;
-      startY = e.touches[0].clientY;
-      currentY = startY;
-      adContent.style.transition = "none";
-    }, { passive: true });
-
-    adContent.addEventListener("touchmove", (e) => {
-      if (!isDragging || isClosing) return;
-      currentY = e.touches[0].clientY;
-      const deltaY = currentY - startY;
-      adContent.style.transform = `translateY(${deltaY}px)`;
-    }, { passive: true });
-
-    adContent.addEventListener("touchend", () => {
-      if (!isDragging || isClosing) return;
-      isDragging = false;
-      
-      const deltaY = currentY - startY;
-      
-      // 指のブレを許容するため、3px以上動かして離したら吹き飛ばす
-      if (Math.abs(deltaY) > 3) {
-        closeAdPopup();
-      } else {
-        adContent.style.transition = "transform 0.2s ease";
-        adContent.style.transform = "translateY(0)";
-      }
-    });
-
-    // PCとの同期完了時に自動で閉じる
-    document.addEventListener("syncCompleted", closeAdPopup);
-
-    // 広告ブロック検知（エラー停止を防ぐフェイルセーフ）
-    setTimeout(() => {
-      const ninjaContainer = document.getElementById("ninja-ad-container");
-      if (ninjaContainer && !isClosing) {
-        let isBlocked = false;
-        const iframe = ninjaContainer.querySelector("iframe");
-
-        if (iframe) {
-          try {
-            const body = iframe.contentWindow?.document?.body;
-            if (!body || body.innerHTML.trim() === "" || body.offsetHeight < 10) {
-              isBlocked = true;
-            }
-          } catch (e) {
-            isBlocked = true;
-          }
-        } else {
-          isBlocked = true;
-        }
-
-        if (isBlocked) {
-          ninjaContainer.innerHTML = "";
-          ninjaContainer.style.paddingTop = "8px";
-          const hintText = document.querySelector(".ad-dismiss-hint span");
-          if (hintText) {
-            hintText.innerHTML = "Ad blocked!<br>Swipe UP to dismiss";
-          }
-        }
-      }
-    }, 1500);
-  }
-}
-    
   });
-
   els.fileBtn.onclick = () => {
     const input = document.createElement("input");
     input.type = "file";
@@ -1695,7 +1574,6 @@ if (typeof isMobileMode !== "undefined" && isMobileMode) {
         if (syncDataChannel.readyState === "open") {
           syncDataChannel.send(JSON.stringify({ type: "sync_request" }));
         }
-        document.dispatchEvent(new CustomEvent("syncCompleted"));
       }
     };
 
