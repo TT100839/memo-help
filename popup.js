@@ -1520,12 +1520,24 @@
       loadNinjaAd("ninja-ad-container", "5eaf2afc20e281b8c881eee2dc99bcde");
       loadNinjaAd("ad-container", "364137cef4e73e2d418b4bb9d3dc431b");
 
+      // ▼▼ ここから差し替え ▼▼
       const adOverlay = document.getElementById("ad-popup-overlay");
       const adCloseBtn = document.getElementById("ad-close-btn");
       const adContent = document.getElementById("ad-popup-content");
+
       if (adOverlay && adCloseBtn && adContent) {
         adOverlay.style.display = "flex";
-        document.body.style.overflow = "hidden";
+
+        // スクロールを完全に防ぐためのイベントハンドラ
+        const preventScroll = (e) => {
+          if (e.cancelable) e.preventDefault();
+        };
+        document.addEventListener("touchmove", preventScroll, {
+          passive: false,
+        });
+
+        adContent.style.padding = "24px 16px 16px 16px";
+        adContent.style.boxSizing = "border-box";
 
         if (!document.getElementById("ad-drag-handle")) {
           const handle = document.createElement("div");
@@ -1534,55 +1546,82 @@
         }
 
         let isClosing = false;
-        const closeAdPopup = (isSwipedUp = false) => {
+
+        // 閉じる・飛ばすアニメーション処理（0.1秒で上へ）
+        const closeAdPopup = () => {
           if (isClosing) return;
           isClosing = true;
-          document.body.style.overflow = "";
-          adOverlay.style.animation = "fadeOut 0.3s ease forwards";
 
-          if (isSwipedUp) {
-            adContent.style.animation =
-              "slideUpOut 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards";
-          } else {
-            adContent.style.animation = "slideDown 0.3s ease forwards";
-          }
+          // スクロール制限を解除して通常の動作に戻す
+          document.removeEventListener("touchmove", preventScroll);
+
+          adOverlay.style.animation = "fadeOut 0.1s ease forwards";
+          adContent.style.transition = "transform 0.1s linear";
+          adContent.style.transform = "translateY(-150vh)"; // 上へ飛ぶ
 
           setTimeout(() => {
             adOverlay.style.display = "none";
-          }, 400);
+          }, 100);
         };
 
-        // ▼ 接続完了イベントを受け取り強制的に上へスワイプアウトさせる
-        document.addEventListener("syncCompleted", () => {
-          closeAdPopup(true);
+        // ×ボタンで消す
+        adCloseBtn.addEventListener("click", () => closeAdPopup());
+
+        // 上部の空白（オーバーレイ背景）タップで消す
+        adOverlay.addEventListener("click", (e) => {
+          if (e.target === adOverlay || e.target.closest(".ad-dismiss-hint")) {
+            closeAdPopup();
+          }
         });
 
-        adContent.addEventListener("click", (e) => e.stopPropagation());
-        adOverlay.addEventListener("click", () => closeAdPopup(false));
-        adCloseBtn.addEventListener("click", () => closeAdPopup(false));
-
+        // ▼ 白い枠（adContent）を持って動かせるドラッグ＆スワイプ処理 ▼
         let startY = 0;
-        adOverlay.addEventListener(
+        let currentY = 0;
+        let isDragging = false;
+
+        adContent.addEventListener(
           "touchstart",
           (e) => {
+            if (isClosing) return;
+            isDragging = true;
             startY = e.touches[0].clientY;
+            currentY = startY;
+            adContent.style.animation = "none";
+            adContent.style.transition = "none";
           },
           { passive: true },
         );
 
-        adOverlay.addEventListener(
+        adContent.addEventListener(
           "touchmove",
           (e) => {
-            if (e.cancelable) e.preventDefault();
-          },
-          { passive: false },
-        );
+            if (!isDragging || isClosing) return;
+            currentY = e.touches[0].clientY;
+            const deltaY = currentY - startY;
 
-        adOverlay.addEventListener("touchend", (e) => {
-          const endY = e.changedTouches[0].clientY;
-          if (startY - endY > 40) {
-            closeAdPopup(true);
+            adContent.style.transform = `translateY(${deltaY}px)`;
+          },
+          { passive: true },
+        ); // passive: true にして親のスクロール防止に委ねる
+
+        adContent.addEventListener("touchend", () => {
+          if (!isDragging || isClosing) return;
+          isDragging = false;
+
+          const deltaY = currentY - startY;
+
+          // 少しでも（ピクセル単位で）動いていたら0.1秒で上に飛ばす
+          if (Math.abs(deltaY) > 0) {
+            closeAdPopup();
+          } else {
+            // 動いていない場合は元の位置に戻す（タップ動作を妨げないため）
+            adContent.style.transition = "transform 0.1s ease";
+            adContent.style.transform = "translateY(0)";
           }
+        });
+
+        document.addEventListener("syncCompleted", () => {
+          closeAdPopup();
         });
 
         setTimeout(() => {
@@ -1594,7 +1633,6 @@
             if (iframe) {
               try {
                 const body = iframe.contentWindow.document.body;
-                // 中身が生成されていないか、極端に小さい場合はブロックと判定
                 if (
                   !body ||
                   body.innerHTML.trim() === "" ||
@@ -1603,7 +1641,7 @@
                   isBlocked = true;
                 }
               } catch (e) {
-                isBlocked = true; // クロスドメインエラー等もブロック扱い
+                isBlocked = true;
               }
             } else {
               isBlocked = true;
@@ -1611,74 +1649,19 @@
 
             if (isBlocked) {
               ninjaContainer.innerHTML = "";
-              ninjaContainer.style.paddingTop = "24px";
-
+              ninjaContainer.style.paddingTop = "8px";
               const hintText = document.querySelector(".ad-dismiss-hint span");
-              if (hintText)
-                hintText.innerHTML =
-                  "Ad blocked! Secret Canvas 🎨<br>Swipe UP to dismiss";
-              const canvas = document.createElement("canvas");
-              canvas.style.width = "100%";
-              canvas.style.height = "100%";
-              canvas.style.touchAction = "none";
-              canvas.style.borderRadius = "0 0 16px 16px";
-              ninjaContainer.appendChild(canvas);
-
-              requestAnimationFrame(() => {
-                canvas.width = canvas.offsetWidth;
-                canvas.height = canvas.offsetHeight;
-                const ctx = canvas.getContext("2d");
-                ctx.lineWidth = 4;
-                ctx.lineCap = "round";
-                ctx.strokeStyle = "var(--accent-blue, #007aff)";
-
-                let isDrawing = false;
-                const getPos = (e) => {
-                  const rect = canvas.getBoundingClientRect();
-                  const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-                  const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-                  return { x: clientX - rect.left, y: clientY - rect.top };
-                };
-
-                const startDraw = (e) => {
-                  e.stopPropagation();
-                  isDrawing = true;
-                  const pos = getPos(e);
-                  ctx.beginPath();
-                  ctx.moveTo(pos.x, pos.y);
-                };
-
-                const draw = (e) => {
-                  e.stopPropagation();
-                  if (!isDrawing) return;
-                  if (e.cancelable) e.preventDefault();
-                  const pos = getPos(e);
-                  ctx.lineTo(pos.x, pos.y);
-                  ctx.stroke();
-                };
-
-                const endDraw = (e) => {
-                  e.stopPropagation();
-                  isDrawing = false;
-                };
-
-                canvas.addEventListener("touchstart", startDraw, {
-                  passive: false,
-                });
-                canvas.addEventListener("touchmove", draw, { passive: false });
-                canvas.addEventListener("touchend", endDraw);
-                canvas.addEventListener("mousedown", startDraw);
-                canvas.addEventListener("mousemove", draw);
-                canvas.addEventListener("mouseup", endDraw);
-                canvas.addEventListener("mouseleave", endDraw);
-              });
+              if (hintText) {
+                hintText.innerHTML = "Ad blocked!<br>Swipe UP to dismiss";
+              }
             }
           }
         }, 1500);
       }
+      // ▲▲ 差し替えここまで ▲▲
     }
-    // ▲▲ 追加ここまで ▲▲
   });
+
   els.fileBtn.onclick = () => {
     const input = document.createElement("input");
     input.type = "file";
