@@ -488,19 +488,36 @@ position: sticky;
 /* =========================================
    スマホ用 ポップアップ広告 UI (風船モード)
 ========================================= */
+/* ▼▼ ここから差し替え ▼▼ */
 #ad-popup-overlay {
   position: fixed;
   top: 0;
   left: 0;
   width: 100vw;
   height: 100dvh;
-  background: rgba(0, 0, 0, 0.4);
+  background: rgba(0, 0, 0, 0.6);
   backdrop-filter: blur(2px);
   -webkit-backdrop-filter: blur(2px);
   z-index: 9999;
-  display: block; /* 絶対配置の親として機能させる */
-  animation: fadeIn 0.3s ease forwards;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  opacity: 0; /* 初期状態を透明に */
+  pointer-events: none; /* 初期状態は操作不可に */
+  transition: opacity 0.3s ease; /* フェードアニメーション */
 }
+
+#ad-popup-content {
+  width: 100%;
+  padding-bottom: 24px; /* 下部の余白を最適化 */
+  background: var(--surface-white);
+  border-top-left-radius: 16px;
+  border-top-right-radius: 16px;
+  position: relative;
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.2);
+  transform: translateY(100%);
+}
+/* ▲▲ 差し替えここまで ▲▲ */
 
 .ad-dismiss-hint {
   position: absolute;
@@ -512,20 +529,6 @@ position: sticky;
   justify-content: center;
   align-items: center;
   pointer-events: none;
-}
-
-#ad-popup-content {
-  width: 90%;
-  max-width: 350px;
-  height: 40vh;
-  max-height: 350px;
-  background: var(--surface-white);
-  border-radius: 16px;
-  position: absolute;
-  top: 0;
-  left: 5%;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-  /* アニメーションはJSの座標計算で行うため削除 */
 }
 
 /* ドラッグするための取っ手（グリップ） */
