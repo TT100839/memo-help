@@ -304,7 +304,6 @@ position: sticky;
 #files-area {
   display: flex;
   align-items: center;
-  flex-wrap: nowrap;
   gap: 6px;
   overflow-x: auto;
   overflow-y: hidden;
@@ -341,7 +340,6 @@ position: sticky;
   transition: background-color 0.2s, color 0.2s;
   flex-shrink: 0; /* 追加: 要素が潰れるのを防ぐ */
   max-width: 120px;
-  white-space: nowrap;
 }
 .file-link .link-text {
   overflow: hidden;
@@ -514,15 +512,5 @@ position: sticky;
 
   .context-menu {
     background: rgba(44, 44, 46, 0.95);
-  }
-  #qr-container {
-    background: #2c2c2e !important;
-    border-color: #555 !important;
-  }
-  #qr-container p {
-    color: #f5f5f7 !important;
-  }
-  #qr-image {
-    filter: invert(1);
   }
 }
