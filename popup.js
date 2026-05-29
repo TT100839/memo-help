@@ -1488,67 +1488,29 @@
       btnSearch.addEventListener("click", () => playDemo("search"));
     }
 
-    if (typeof isMobileMode !== "undefined" && isMobileMode) {
-      // ★追加：広告をメイン通信から切り離して安全に読み込む関数
-// ★広告をメイン通信から切り離して安全に読み込む関数（srcdoc方式に変更）
-      const loadNinjaAd = (containerId, adId) => {
-        const container = document.getElementById(containerId);
-        if (!container) return;
-
-        const iframe = document.createElement("iframe");
-        iframe.style.width = "100%";
-        iframe.style.height = "100%";
-        iframe.style.border = "none";
-        iframe.scrolling = "no";
-        // document.writeではなくsrcdocを利用してCSPブロックを回避
-        iframe.srcdoc = `
-          <!DOCTYPE html>
-          <html>
-          <head><style>body{margin:0;padding:0;display:flex;justify-content:center;align-items:center;overflow:hidden;}</style></head>
-          <body>
-            <script src="https://adm.shinobi.jp/s/${adId}"></script>
-          </body>
-          </html>
-        `;
-        container.appendChild(iframe);
-      };
-
-      loadNinjaAd("ninja-ad-container", "5eaf2afc20e281b8c881eee2dc99bcde");
-      loadNinjaAd("ad-container", "364137cef4e73e2d418b4bb9d3dc431b");
-
+   if (typeof isMobileMode !== "undefined" && isMobileMode) {
 // ▼▼ ここから差し替え ▼▼
       const adOverlay = document.getElementById("ad-popup-overlay");
       const adCloseBtn = document.getElementById("ad-close-btn");
       const adContent = document.getElementById("ad-popup-content");
 
-      // スクロール固定用の関数
-      const lockScroll = () => {
-        document.body.style.position = 'fixed';
-        document.body.style.width = '100%';
-        document.body.style.top = `-${window.scrollY}px`;
-      };
-
-      // スクロール復元用の関数
-      const unlockScroll = () => {
-        const scrollY = document.body.style.top;
-        document.body.style.position = '';
-        document.body.style.width = '';
-        document.body.style.top = '';
-        window.scrollTo(0, parseInt(scrollY || '0') * -1);
+      // スクロールを禁止するイベントハンドラ
+      const preventScroll = (e) => {
+        if (e.cancelable) e.preventDefault();
       };
 
       if (adOverlay && adCloseBtn && adContent) {
         adOverlay.style.display = "flex";
         
-        // 広告表示中はスクロールを完全にロック
-        lockScroll();
+        // 広告表示中はスクロールをロック（横揺れ防止）
+        document.body.style.overflow = "hidden";
+        document.addEventListener("touchmove", preventScroll, { passive: false });
 
-        // 強制的に画面下部に固定するスタイルを追加
         adOverlay.style.position = "fixed";
         adOverlay.style.top = "0";
         adOverlay.style.left = "0";
         adOverlay.style.width = "100vw";
-        adOverlay.style.height = "100vh";
+        adOverlay.style.height = "100dvh";
         
         adContent.style.position = "absolute";
         adContent.style.bottom = "0";
@@ -1564,12 +1526,13 @@
 
         let isClosing = false;
         
-        // 0.1秒で上に飛んで消えるアニメーション
         const closeAdPopup = () => {
           if (isClosing) return;
           isClosing = true;
           
-          unlockScroll(); // スクロール制限を解除
+          // スクロール制限を解除
+          document.body.style.overflow = "";
+          document.removeEventListener("touchmove", preventScroll);
           
           adOverlay.style.animation = "fadeOut 0.1s ease forwards";
           adContent.style.transition = "transform 0.1s linear";
@@ -1582,14 +1545,12 @@
 
         adCloseBtn.addEventListener("click", closeAdPopup);
 
-        // 背景および上部余白タップで消す処理
         adOverlay.addEventListener("click", (e) => {
           if (e.target === adOverlay || e.target.closest('.ad-dismiss-hint')) {
             closeAdPopup();
           }
         });
 
-        // ▼ 白い枠（adContent）を持って動かせるドラッグ＆スワイプ処理 ▼
         let startY = 0;
         let currentY = 0;
         let isDragging = false;
@@ -1617,7 +1578,6 @@
           
           const deltaY = currentY - startY;
           
-          // ピクセル単位で少しでも動いていれば消す
           if (Math.abs(deltaY) > 0) {
             closeAdPopup();
           } else {
@@ -1628,6 +1588,7 @@
 
         document.addEventListener("syncCompleted", closeAdPopup);
 
+        // 広告ブロックチェック処理
         setTimeout(() => {
           const ninjaContainer = document.getElementById("ninja-ad-container");
           if (ninjaContainer && !isClosing) {
@@ -1659,8 +1620,6 @@
         }, 1500);
       }
 // ▲▲ 差し替えここまで ▲▲
-
-      // ▲▲ 差し替えここまで ▲▲
     }
   });
 
