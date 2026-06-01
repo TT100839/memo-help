@@ -1648,17 +1648,9 @@
     const sessionId = crypto.randomUUID();
     const connectUrl = MOBILE_SITE_URL + "?id=" + sessionId;
 
-    try {
-  const pc = new RTCPeerConnection({
-    iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-  });
-  // 通信処理を実行
-} catch (err) {
-  // エラーを捕捉しクラッシュを回避
-  console.error(err);
-  connectBtn.style.color = "#f44336";
-  alert("WebRTC initialization failed. If you are using Incognito mode, the browser may be blocking local network paths. Please try in normal mode.");
-}
+    const pc = new RTCPeerConnection({
+      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+    });
     syncPeerConnection = pc;
     const dc = pc.createDataChannel("memo-channel");
     setupDataChannel(dc);
@@ -1728,15 +1720,7 @@
       navigator.clipboard.writeText(connectUrl);
       alert("URL copied to clipboard");
     };
-    const sessionIdText = document.getElementById("session-id-text");
-if (sessionIdText) {
-  // クリック可能なテキストリンクを生成
-  sessionIdText.innerHTML = `ID: ${sessionId}<br><span style="color:#007aff;text-decoration:underline;cursor:pointer;">URL Copy</span>`;
-  sessionIdText.onclick = (e) => {
-    e.stopPropagation();
-    navigator.clipboard.writeText(connectUrl);
-    alert("URL copied!");
-  };
+    document.getElementById("session-id-text").textContent = "ID: " + sessionId;
     document.getElementById("qr-container").style.display = "block";
     connectBtn.title = "Waiting for mobile connection...";
     connectBtn.style.color = "#4285f4";
@@ -1799,17 +1783,9 @@ if (sessionIdText) {
 
       els.memoArea.placeholder = "Searching for route(2/3)...";
       const offer = await res.json();
-      try {
-  const pc = new RTCPeerConnection({
-    iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-  });
-  // 通信処理を実行
-} catch (err) {
-  // エラーを捕捉しクラッシュを回避
-  console.error(err);
-  connectBtn.style.color = "#f44336";
-  alert("WebRTC initialization failed. If you are using Incognito mode, the browser may be blocking local network paths. Please try in normal mode.");
-}
+      const pc = new RTCPeerConnection({
+        iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+      });
 
       syncPeerConnection = pc;
       pc.ondatachannel = (e) => {
