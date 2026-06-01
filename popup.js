@@ -129,7 +129,7 @@
       }
 
       if (data.type === "file_end" && incomingFileInfo) {
-        els.memoArea.placeholder = `Building and saving file...`;
+        els.memoArea.placeholder = ``;
         const blob = new Blob(incomingFile, {
           type: incomingFileInfo.mimeType,
         });
