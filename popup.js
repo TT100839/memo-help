@@ -44,7 +44,7 @@
         console.error("File send error:", e);
       }
     }
-    
+
     isSendingFile = false;
   }
   async function sendFileAtMaxSpeed(file, tag, fileName) {
@@ -85,8 +85,8 @@
         offset += chunkSize;
 
         // ★パケット送信の間に息継ぎを入れ、テキスト同期等の割り込みを許可する
-        if (offset % (chunkSize * 10) === 0) { 
-          await new Promise(resolve => setTimeout(resolve, 0));
+        if (offset % (chunkSize * 10) === 0) {
+          await new Promise((resolve) => setTimeout(resolve, 0));
         }
       }
     };
@@ -1195,7 +1195,7 @@
       tx.objectStore("files").put(file, fileTag);
       tx.oncomplete = () => updateFiles();
       insertText(fileTag + "\n");
-      enqueueFile(file, fileTag, file.name); 
+      enqueueFile(file, fileTag, file.name);
     }
   });
   els.memoArea.addEventListener("paste", (e) => {
@@ -1648,9 +1648,19 @@
     const sessionId = crypto.randomUUID();
     const connectUrl = MOBILE_SITE_URL + "?id=" + sessionId;
 
-    const pc = new RTCPeerConnection({
-      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-    });
+    try {
+      const pc = new RTCPeerConnection({
+        iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+      });
+      // 通信処理を実行
+    } catch (err) {
+      // エラーを捕捉しクラッシュを回避
+      console.error(err);
+      connectBtn.style.color = "#f44336";
+      alert(
+        "WebRTC initialization failed. If you are using Incognito mode, the browser may be blocking local network paths. Please try in normal mode.",
+      );
+    }
     syncPeerConnection = pc;
     const dc = pc.createDataChannel("memo-channel");
     setupDataChannel(dc);
@@ -1713,18 +1723,20 @@
       background: "white",
       foreground: "black",
     });
-    const sessionIdText = document.getElementById("session-id-text");
-    sessionIdText.textContent = "ID: " + sessionId + " (Click to copy)";
-    sessionIdText.style.cursor = "pointer";
-    sessionIdText.onclick = () => {
-      navigator.clipboard.writeText(connectUrl);
-      alert("URL copied to clipboard");
-    };
-    document.getElementById("session-id-text").textContent = "ID: " + sessionId;
     document.getElementById("qr-container").style.display = "block";
     connectBtn.title = "Waiting for mobile connection...";
     connectBtn.style.color = "#4285f4";
     connectBtn.disabled = false;
+    const sessionIdText = document.getElementById("session-id-text");
+    if (sessionIdText) {
+      // クリック可能なテキストリンクを生成
+      sessionIdText.innerHTML = `ID: ${sessionId}<br><span style="color:#007aff;text-decoration:underline;cursor:pointer;">URL Copy</span>`;
+      sessionIdText.onclick = (e) => {
+        e.stopPropagation();
+        navigator.clipboard.writeText(connectUrl);
+        alert("URL copied!");
+      };
+    }
 
     let pollCount = 0;
     const maxPolls = 30;
@@ -1770,7 +1782,7 @@
       for (let i = 0; i < 10; i++) {
         res = await fetch(WORKER_URL + "/offer?id=" + sessionId);
         if (res.ok) break;
-        const dots = ".".repeat((i %3)+1);
+        const dots = ".".repeat((i % 3) + 1);
         els.memoArea.placeholder = `Waiting for PC synchronization${dots}`;
         await new Promise((resolve) => setTimeout(resolve, 1000));
       }
@@ -1783,9 +1795,19 @@
 
       els.memoArea.placeholder = "Searching for route(2/3)...";
       const offer = await res.json();
-      const pc = new RTCPeerConnection({
-        iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-      });
+      try {
+        const pc = new RTCPeerConnection({
+          iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+        });
+        // 通信処理を実行
+      } catch (err) {
+        // エラーを捕捉しクラッシュを回避
+        console.error(err);
+        connectBtn.style.color = "#f44336";
+        alert(
+          "WebRTC initialization failed. If you are using Incognito mode, the browser may be blocking local network paths. Please try in normal mode.",
+        );
+      }
 
       syncPeerConnection = pc;
       pc.ondatachannel = (e) => {
