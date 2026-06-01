@@ -1770,8 +1770,9 @@
       for (let i = 0; i < 10; i++) {
         res = await fetch(WORKER_URL + "/offer?id=" + sessionId);
         if (res.ok) break;
-        els.memoArea.placeholder = `Connecting to PC(1/3)... Retry ${i + 1}/10`;
-        await new Promise((resolve) => setTimeout(resolve, 2000));
+        const dots = ".".repeat((i %3)+1);
+        els.memoArea.placeholder = `Waiting for PC synchronization${dots}`;
+        await new Promise((resolve) => setTimeout(resolve, 1000));
       }
 
       if (!res || !res.ok) {
