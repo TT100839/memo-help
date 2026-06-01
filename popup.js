@@ -129,7 +129,7 @@
       }
 
       if (data.type === "file_end" && incomingFileInfo) {
-        els.memoArea.placeholder = ``;
+        els.memoArea.placeholder = `Building and saving file...`;
         const blob = new Blob(incomingFile, {
           type: incomingFileInfo.mimeType,
         });
@@ -1686,7 +1686,7 @@
         pc.addEventListener("icegatheringstatechange", () => {
           if (pc.iceGatheringState === "complete") finish();
         });
-        setTimeout(finish, 7000);
+        setTimeout(finish, 3000);
       }
     });
 
@@ -1713,6 +1713,13 @@
       background: "white",
       foreground: "black",
     });
+    const sessionIdText = document.getElementById("session-id-text");
+    sessionIdText.textContent = "ID: " + sessionId + " (Click to copy)";
+    sessionIdText.style.cursor = "pointer";
+    sessionIdText.onclick = () => {
+      navigator.clipboard.writeText(connectUrl);
+      alert("URL copied to clipboard");
+    };
     document.getElementById("session-id-text").textContent = "ID: " + sessionId;
     document.getElementById("qr-container").style.display = "block";
     connectBtn.title = "Waiting for mobile connection...";
@@ -1803,7 +1810,7 @@
               resolve();
             }
           });
-          setTimeout(resolve, 7000);
+          setTimeout(resolve, 3000);
         }
       });
 
