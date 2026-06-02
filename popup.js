@@ -1656,7 +1656,6 @@
     } catch (err) {
       // エラーを捕捉しクラッシュを回避
       console.error(err);
-      connectBtn.style.color = "#f44336";
       alert(
         "WebRTC initialization failed. If you are using Incognito mode, the browser may be blocking local network paths. Please try in normal mode.",
       );
