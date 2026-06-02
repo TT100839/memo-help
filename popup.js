@@ -1647,9 +1647,9 @@
 
     const sessionId = crypto.randomUUID();
     const connectUrl = MOBILE_SITE_URL + "?id=" + sessionId;
-
+    let pc;
     try {
-      const pc = new RTCPeerConnection({
+      pc = new RTCPeerConnection({
         iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
       });
       // 通信処理を実行
