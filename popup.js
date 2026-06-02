@@ -1795,8 +1795,9 @@
 
       els.memoArea.placeholder = "Searching for route(2/3)...";
       const offer = await res.json();
+      let pc;
       try {
-        const pc = new RTCPeerConnection({
+        pc = new RTCPeerConnection({
           iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
         });
         // 通信処理を実行
