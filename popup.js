@@ -19,6 +19,7 @@
   let incomingFile = [];
   let incomingFileInfo = null;
   const incomingFiles = {};
+  const receivingFiles = {};
 
   let db;
   let syncDataChannel = null;
@@ -47,7 +48,7 @@
 
     isSendingFile = false;
   }
-  async function sendFileAtMaxSpeed(file, tag, fileName) {
+async function sendFileAtMaxSpeed(file, tag, fileName) {
     if (!syncDataChannel || syncDataChannel.readyState !== "open") return;
 
     syncDataChannel.bufferedAmountLowThreshold = 32 * 1024;
@@ -64,9 +65,8 @@
 
     const arrayBuffer = await file.arrayBuffer();
     let offset = 0;
-
-    // 【修正後】
     const chunkSize = 16 * 1024; // 16KB
+
     const sendChunk = async () => {
       while (offset < arrayBuffer.byteLength) {
         if (syncDataChannel.bufferedAmount > 64 * 1024) {
@@ -84,12 +84,14 @@
         syncDataChannel.send(chunk);
         offset += chunkSize;
 
-        // ★パケット送信の間に息継ぎを入れ、テキスト同期等の割り込みを許可する
-        if (offset % (chunkSize * 10) === 0) {
-          await new Promise((resolve) => setTimeout(resolve, 0));
+        // ★ 解決策2: チャンク送信の合間に非同期のインターバルを挟みテキスト通信の割り込みを許可する
+        if (offset % (chunkSize * 20) === 0) { 
+          // requestAnimationFrameを用いることでブラウザのUI描画とパケット処理を両立させる
+          await new Promise((resolve) => requestAnimationFrame(resolve));
         }
       }
     };
+    
     await sendChunk();
     syncDataChannel.send(JSON.stringify({ type: "file_end" }));
   }
@@ -104,16 +106,20 @@
       runtime: { getURL: (p) => p },
     };
   }
-  function handleSyncMessage(event) {
+function handleSyncMessage(event) {
     if (typeof event.data !== "string") {
       incomingFile.push(event.data);
-      if (incomingFileInfo && incomingFileInfo.size > 0) {
+      
+      // プログレス表示を files-area 内の要素へ反映
+      if (incomingFileInfo && incomingFileInfo.size > 0 && incomingFile.length % 50 === 0) {
         const received = incomingFile.length * (16 * 1024);
-        const percent = Math.min(
-          100,
-          Math.floor((received / incomingFileInfo.size) * 100),
-        );
-        els.memoArea.placeholder = `[${incomingFileInfo.name}] Receiving ${percent}%`;
+        const percent = Math.min(100, Math.floor((received / incomingFileInfo.size) * 100));
+        
+        if (receivingFiles[incomingFileInfo.tag]) {
+          receivingFiles[incomingFileInfo.tag].percent = percent;
+          const progressSpan = document.getElementById(`progress-${incomingFileInfo.tag}`);
+          if (progressSpan) progressSpan.textContent = `(受信中 ${percent}%)`;
+        }
       }
       return;
     }
@@ -124,57 +130,61 @@
       if (data.type === "file_start") {
         incomingFileInfo = data;
         incomingFile = [];
-        els.memoArea.placeholder = `[${data.name}] Receiving 0%`;
+        
+        // ★ 読み込み開始を登録し、files-area に表示させる
+        receivingFiles[data.tag] = { name: data.name, percent: 0 };
+        updateFiles();
         return;
       }
 
       if (data.type === "file_end" && incomingFileInfo) {
-        els.memoArea.placeholder = `Building and saving file...`;
-        const blob = new Blob(incomingFile, {
-          type: incomingFileInfo.mimeType,
-        });
-
-        if (db) {
-          try {
-            const tx = db.transaction("files", "readwrite");
-            tx.objectStore("files").put(blob, incomingFileInfo.tag);
-
-            tx.oncomplete = () => {
-              els.memoArea.placeholder = "";
-              setTimeout(updateFiles, 100);
-            };
-            tx.onerror = (e) => {
-              // ★DB書き込みエラー時のみメモリに退避
-              incomingFiles[incomingFileInfo.tag] = blob;
-              els.memoArea.placeholder =
-                "DB limit reached. Saving to temporary memory.";
-              setTimeout(updateFiles, 100);
-            };
-          } catch (e) {
-            // ★トランザクション生成エラー時のみメモリに退避
-            incomingFiles[incomingFileInfo.tag] = blob;
-            els.memoArea.placeholder =
-              "Mode limit reached. Saving to temporary memory.";
-            setTimeout(updateFiles, 100);
-          }
-        } else {
-          // ★DBが初期化されていない場合のみメモリに退避
-          incomingFiles[incomingFileInfo.tag] = blob;
-          els.memoArea.placeholder = "";
-          setTimeout(updateFiles, 100);
-        }
-
+        const fileTag = incomingFileInfo.tag;
+        const mimeType = incomingFileInfo.mimeType;
+        const chunks = incomingFile;
+        
         incomingFile = [];
         incomingFileInfo = null;
+        
+        if (receivingFiles[fileTag]) {
+           receivingFiles[fileTag].percent = '展開中...';
+           const progressSpan = document.getElementById(`progress-${fileTag}`);
+           if (progressSpan) progressSpan.textContent = `(展開中...)`;
+        }
+
+        setTimeout(() => {
+          try {
+            const blob = new Blob(chunks, { type: mimeType });
+            const finishSave = () => {
+              delete receivingFiles[fileTag]; // ★ 保存完了後に受信中リストから削除
+              updateFiles();
+            };
+
+            if (db) {
+              const tx = db.transaction("files", "readwrite");
+              tx.objectStore("files").put(blob, fileTag);
+              tx.oncomplete = finishSave;
+              tx.onerror = () => {
+                incomingFiles[fileTag] = blob;
+                finishSave();
+              };
+            } else {
+              incomingFiles[fileTag] = blob;
+              finishSave();
+            }
+          } catch (e) {
+            console.error("File processing error:", e);
+            delete receivingFiles[fileTag];
+            updateFiles();
+          }
+        }, 50);
         return;
       }
 
+      // 以下既存の同期処理（sync_request, sync_state 等）はそのまま
       if (data.type === "sync_request" && !isMobileMode) {
         saveToStorage();
         return;
       }
-
-      // ping/pongはsetupDataChannel内で処理済み（念のためここでも無視）
       if (data.type === "ping" || data.type === "pong") return;
 
       if (data.type === "sync_state" && data.tabs && data.tabs.length > 0) {
@@ -185,7 +195,6 @@
           pushSnapshot();
         }
 
-        els.memoArea.placeholder = "";
         state.tabs = data.tabs;
         state.activeTabId = data.activeTabId;
 
@@ -195,14 +204,9 @@
         }
 
         if (data.searchVisible !== undefined) {
-          els.searchContainer.style.display = data.searchVisible
-            ? "flex"
-            : "none";
+          els.searchContainer.style.display = data.searchVisible ? "flex" : "none";
         }
-        if (
-          data.searchValue !== undefined &&
-          els.searchInput.value !== data.searchValue
-        ) {
+        if (data.searchValue !== undefined && els.searchInput.value !== data.searchValue) {
           els.searchInput.value = data.searchValue;
         }
 
@@ -512,7 +516,7 @@
       els.linksArea.appendChild(a);
     });
   }
-  function updateFiles() {
+function updateFiles() {
     if (!els.filesArea) return;
 
     const processFiles = (dbKeys = []) => {
@@ -524,13 +528,13 @@
 
       const currentText = els.memoArea.value;
       const memoryKeys = Object.keys(incomingFiles);
+      const receivingKeys = Object.keys(receivingFiles); // ★追加: 受信中のキーを取得
 
-      const allKeys = Array.from(new Set([...dbKeys, ...memoryKeys]));
+      // ★DB、メモリ、受信中のキーをすべて結合
+      const allKeys = Array.from(new Set([...dbKeys, ...memoryKeys, ...receivingKeys]));
       let activeFiles = allKeys.filter((key) => currentText.includes(key));
 
-      activeFiles.sort(
-        (a, b) => currentText.indexOf(a) - currentText.indexOf(b),
-      );
+      activeFiles.sort((a, b) => currentText.indexOf(a) - currentText.indexOf(b));
 
       if (!activeFiles.length) {
         els.filesArea.style.display = "none";
@@ -566,13 +570,15 @@
         viewLink.style.padding = "0px 4px";
         viewLink.style.borderRadius = "4px";
         viewLink.style.cursor = "pointer";
+
+        // 基本のアイコン
         viewLink.innerHTML = `
-        <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" class="link-icon">
-          <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path>
-          <polyline points="13 2 13 9 20 9"></polyline>
-        </svg>
-        <span class="link-text">${displayStr}</span>
-      `;
+          <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" class="link-icon">
+            <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path>
+            <polyline points="13 2 13 9 20 9"></polyline>
+          </svg>
+          <span class="link-text">${displayStr}</span>
+        `;
 
         const isMobile = typeof isMobileMode !== "undefined" && isMobileMode;
         let downloadBtn = null;
@@ -581,6 +587,7 @@
           downloadBtn = document.createElement("a");
           downloadBtn.download = displayStr;
           downloadBtn.title = "ダウンロード";
+          // (中略 - 既存のスタイル設定)
           downloadBtn.style.color = "inherit";
           downloadBtn.style.display = "flex";
           downloadBtn.style.alignItems = "center";
@@ -588,17 +595,15 @@
           downloadBtn.style.borderRadius = "4px";
           downloadBtn.style.transition = "background-color 0.2s";
           downloadBtn.style.cursor = "pointer";
-          downloadBtn.onmouseenter = () =>
-            (downloadBtn.style.backgroundColor = "rgba(130,130,130,0.2)");
-          downloadBtn.onmouseleave = () =>
-            (downloadBtn.style.backgroundColor = "transparent");
+          downloadBtn.onmouseenter = () => (downloadBtn.style.backgroundColor = "rgba(130,130,130,0.2)");
+          downloadBtn.onmouseleave = () => (downloadBtn.style.backgroundColor = "transparent");
           downloadBtn.innerHTML = `
-          <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-            <polyline points="7 10 12 15 17 10"></polyline>
-            <line x1="12" y1="15" x2="12" y2="3"></line>
-          </svg>
-        `;
+            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="7 10 12 15 17 10"></polyline>
+              <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+          `;
         }
 
         const displayFile = (blob) => {
@@ -620,10 +625,7 @@
           wrapper.draggable = true;
           wrapper.addEventListener("dragstart", (e) => {
             const mimeType = blob.type || "application/octet-stream";
-            e.dataTransfer.setData(
-              "DownloadURL",
-              `${mimeType}:${displayStr}:${url}`,
-            );
+            e.dataTransfer.setData("DownloadURL", `${mimeType}:${displayStr}:${url}`);
           });
         };
 
@@ -632,18 +634,29 @@
           alert("File data not found");
         };
 
-        if (incomingFiles && incomingFiles[fileTag]) {
+        // ★分岐を追加：受信中の場合はプログレスを表示しリンクを無効化
+        if (receivingFiles && receivingFiles[fileTag]) {
+          viewLink.style.opacity = "0.6";
+          viewLink.style.cursor = "default";
+          viewLink.innerHTML = `
+            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" class="link-icon">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="7 10 12 15 17 10"></polyline>
+              <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+            <span class="link-text">${displayStr}</span>
+            <span id="progress-${fileTag}" style="font-size: 11px; margin-left: 4px; color: var(--accent-blue);">(${receivingFiles[fileTag].percent}%)</span>
+          `;
+          viewLink.onclick = (e) => e.preventDefault();
+          if (downloadBtn) downloadBtn.style.display = "none";
+        } else if (incomingFiles && incomingFiles[fileTag]) {
           displayFile(incomingFiles[fileTag]);
         } else if (db) {
           try {
-            const getReq = db
-              .transaction("files", "readonly")
-              .objectStore("files")
-              .get(fileTag);
+            const getReq = db.transaction("files", "readonly").objectStore("files").get(fileTag);
             getReq.onsuccess = () => {
-              if (getReq.result) {
-                displayFile(getReq.result);
-              } else {
+              if (getReq.result) displayFile(getReq.result);
+              else {
                 viewLink.onclick = alertMsg;
                 if (downloadBtn) downloadBtn.onclick = alertMsg;
               }
@@ -1537,13 +1550,19 @@
   const WORKER_URL = "https://memo-signaling.tanakasan32400.workers.dev";
   const MOBILE_SITE_URL = "https://tt100839.github.io/memo-help/mobile.html";
 
-  function setupDataChannel(dc) {
+function setupDataChannel(dc) {
     syncDataChannel = dc;
     dc.binaryType = "arraybuffer";
     dc.onmessage = handleSyncMessage;
 
     let heartbeatInterval = null;
     let heartbeatTimeout = null;
+    let isBackground = false;
+
+    // ★タブの表示状態を監視
+    document.addEventListener("visibilitychange", () => {
+      isBackground = document.hidden;
+    });
 
     const startHeartbeat = () => {
       stopHeartbeat();
@@ -1554,11 +1573,11 @@
         }
         try {
           syncDataChannel.send(JSON.stringify({ type: "ping" }));
-          // 8秒以内にpongが返らなければ切断と判断
+          const waitTime = isBackground ? 120000 : 8000;
           heartbeatTimeout = setTimeout(() => {
             console.warn("Heartbeat timeout: disconnected");
             oncloseHandler();
-          }, 8000);
+          }, waitTime);
         } catch (e) {
           oncloseHandler();
         }
@@ -1776,8 +1795,8 @@
         pc.addEventListener("icegatheringstatechange", () => {
           if (pc.iceGatheringState === "complete") finish();
         });
-        // ★タイムアウトを5秒に延長（モバイル回線対応）
-        setTimeout(finish, 5000);
+        // ★タイムアウトを10秒に延長（モバイル回線対応）
+        setTimeout(finish, 10000);
       }
     });
 
@@ -1953,7 +1972,7 @@
         pc.addEventListener("icegatheringstatechange", () => {
           if (pc.iceGatheringState === "complete") resolve();
         });
-        setTimeout(resolve, 5000);
+        setTimeout(resolve, 10000);
       }
     });
 
