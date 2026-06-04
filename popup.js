@@ -174,6 +174,9 @@
         return;
       }
 
+      // ping/pongはsetupDataChannel内で処理済み（念のためここでも無視）
+      if (data.type === "ping" || data.type === "pong") return;
+
       if (data.type === "sync_state" && data.tabs && data.tabs.length > 0) {
         const currentTab = state.tabs.find((t) => t.id === state.activeTabId);
         const newTab = data.tabs.find((t) => t.id === data.activeTabId);
@@ -293,14 +296,14 @@
       syncDataChannel.onmessage = null;
       syncDataChannel.onclose = null;
       syncDataChannel.onerror = null;
-      syncDataChannel.close();
+      try { syncDataChannel.close(); } catch(e) {}
       syncDataChannel = null;
     }
     if (syncPeerConnection) {
       syncPeerConnection.onicecandidate = null;
       syncPeerConnection.ondatachannel = null;
       syncPeerConnection.onconnectionstatechange = null;
-      syncPeerConnection.close();
+      try { syncPeerConnection.close(); } catch(e) {}
       syncPeerConnection = null;
     }
     incomingFile = [];
@@ -375,17 +378,11 @@
           mWidth: res.memoWidth || state.mWidth,
           mHeight: res.memoHeight || state.mHeight,
         });
-        const currentTab =
-          state.tabs.find((t) => t.id === state.activeTabId) || state.tabs[0];
-        if (currentTab && currentTab.text && !currentTab.text.endsWith("\n")) {
-          currentTab.text += "\n";
-        }
-
-        applyModeLayout();
 
         if (!state.tabs.some((t) => t.id === state.activeTabId)) {
           state.activeTabId = state.tabs[0].id;
         }
+        applyModeLayout();
         switchTab(state.activeTabId);
         updateUndoRedo();
         if (!isMobileMode) {
@@ -811,26 +808,31 @@
     const prevTab = state.tabs.find((t) => t.id === state.activeTabId);
     if (prevTab) {
       prevTab.scrollTop = els.memoArea.scrollTop;
-      prevTab.selectionStart = els.memoArea.selectionStart;
-      prevTab.selectionEnd = els.memoArea.selectionEnd;
+      // カーソル位置を保存（フォーカスがmemoAreaにある時のみ）
+      if (document.activeElement === els.memoArea) {
+        prevTab.selectionStart = els.memoArea.selectionStart;
+        prevTab.selectionEnd = els.memoArea.selectionEnd;
+      }
     }
 
     state.activeTabId = id;
     const t = state.tabs.find((t) => t.id === id);
-    if (t && t.text && !t.text.endsWith("\n")) {
-      t.text += "\n";
-    }
-
+    // ★ \n を末尾に追加しない（フォーカスジャンプの原因）
+    // テキストはそのまま設定する
     els.memoArea.value = t ? t.text : "";
 
-    setTimeout(() => {
+    // スクロール位置を復元、カーソル位置はフォーカス時にのみ復元
+    requestAnimationFrame(() => {
       if (t) {
         els.memoArea.scrollTop = t.scrollTop !== undefined ? t.scrollTop : 0;
-        if (t.selectionStart !== undefined) {
-          els.memoArea.setSelectionRange(t.selectionStart, t.selectionEnd);
+        // フォーカスがある場合のみカーソル位置を復元（末尾ジャンプを防ぐ）
+        if (document.activeElement === els.memoArea && t.selectionStart !== undefined) {
+          const safeStart = Math.min(t.selectionStart, els.memoArea.value.length);
+          const safeEnd = Math.min(t.selectionEnd, els.memoArea.value.length);
+          els.memoArea.setSelectionRange(safeStart, safeEnd);
         }
       }
-    }, 0);
+    });
 
     renderTabs();
     updateUI();
@@ -1287,6 +1289,11 @@
       }
     }
   });
+  // IME変換中フラグ
+  let isComposing = false;
+  els.memoArea.addEventListener("compositionstart", () => { isComposing = true; });
+  els.memoArea.addEventListener("compositionend", () => { isComposing = false; });
+
   document.addEventListener("keydown", (e) => {
     if (
       e.code === "Tab" &&
@@ -1296,7 +1303,10 @@
       document.activeElement === els.memoArea
     ) {
       e.preventDefault();
-      insertText("    ");
+      // ★ IME変換中（日本語入力のTab確定）はスペース挿入しない
+      if (!isComposing) {
+        insertText("    ");
+      }
       return;
     }
     if (e.code === "Escape") {
@@ -1532,11 +1542,63 @@
     dc.binaryType = "arraybuffer";
     dc.onmessage = handleSyncMessage;
 
+    let heartbeatInterval = null;
+    let heartbeatTimeout = null;
+
+    const startHeartbeat = () => {
+      stopHeartbeat();
+      heartbeatInterval = setInterval(() => {
+        if (!syncDataChannel || syncDataChannel.readyState !== "open") {
+          stopHeartbeat();
+          return;
+        }
+        try {
+          syncDataChannel.send(JSON.stringify({ type: "ping" }));
+          // 8秒以内にpongが返らなければ切断と判断
+          heartbeatTimeout = setTimeout(() => {
+            console.warn("Heartbeat timeout: disconnected");
+            oncloseHandler();
+          }, 8000);
+        } catch (e) {
+          oncloseHandler();
+        }
+      }, 15000);
+    };
+
+    const stopHeartbeat = () => {
+      if (heartbeatInterval) { clearInterval(heartbeatInterval); heartbeatInterval = null; }
+      if (heartbeatTimeout) { clearTimeout(heartbeatTimeout); heartbeatTimeout = null; }
+    };
+
+    // pingメッセージ処理をhandleSyncMessageに追加
+    const originalOnMessage = dc.onmessage;
+    dc.onmessage = (event) => {
+      // ping/pongをインターセプト
+      if (typeof event.data === "string") {
+        try {
+          const d = JSON.parse(event.data);
+          if (d.type === "ping") {
+            if (syncDataChannel && syncDataChannel.readyState === "open") {
+              syncDataChannel.send(JSON.stringify({ type: "pong" }));
+            }
+            return;
+          }
+          if (d.type === "pong") {
+            if (heartbeatTimeout) { clearTimeout(heartbeatTimeout); heartbeatTimeout = null; }
+            return;
+          }
+        } catch (e) {}
+      }
+      handleSyncMessage(event);
+    };
+
     const onOpenHandler = async () => {
       els.memoArea.placeholder = "";
       els.charCount.style.color = "";
       els.memoArea.style.backgroundColor = "";
       els.memoArea.readOnly = false;
+
+      startHeartbeat();
 
       if (!isMobileMode) {
         saveToStorage();
@@ -1566,7 +1628,7 @@
         }
         const btn = document.getElementById("connect-btn");
         if (btn) {
-          btn.title = "Connected to mobile";
+          btn.title = "モバイルに接続済み（クリックで切断）";
           btn.style.color = "#0f9d58";
           btn.disabled = false;
         }
@@ -1583,18 +1645,18 @@
     }
 
     const oncloseHandler = () => {
+      stopHeartbeat();
       els.memoArea.placeholder =
-        "Disconnected. Please connect again or refresh the page.";
-      if (!els.charCount.textContent.includes("Disconnected")) {
-        els.charCount.textContent =
-          "Disconnected. " + els.charCount.textContent;
+        "切断されました。QRコードを再表示して再接続してください。";
+      if (!els.charCount.textContent.includes("切断")) {
+        els.charCount.textContent = "切断 " + els.charCount.textContent;
       }
       els.charCount.style.color = "#f44336";
 
       if (!isMobileMode) {
         const btn = document.getElementById("connect-btn");
         if (btn) {
-          btn.title = "Disconnected. Click to reconnect.";
+          btn.title = "切断されました。クリックして再接続。";
           btn.style.color = "#f44336";
           btn.disabled = false;
         }
@@ -1611,11 +1673,11 @@
     if (syncPeerConnection) {
       syncPeerConnection.addEventListener("connectionstatechange", () => {
         if (!syncPeerConnection) return;
-        const state = syncPeerConnection.connectionState;
+        const connState = syncPeerConnection.connectionState;
         if (
-          state === "disconnected" ||
-          state === "failed" ||
-          state === "closed"
+          connState === "disconnected" ||
+          connState === "failed" ||
+          connState === "closed"
         ) {
           oncloseHandler();
         }
@@ -1642,33 +1704,50 @@
       return;
     }
 
-    connectBtn.title = "Ready(1/3)...";
+    connectBtn.title = "準備中(1/3)...";
     connectBtn.style.color = "#f4b400";
+    connectBtn.disabled = true;
 
     const sessionId = crypto.randomUUID();
     const connectUrl = MOBILE_SITE_URL + "?id=" + sessionId;
+
+    // ★ try/catchスコープ外でpcを使わないよう全体をtry内に
     let pc;
     try {
       pc = new RTCPeerConnection({
-        iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+        iceServers: [
+          { urls: "stun:stun.l.google.com:19302" },
+          { urls: "stun:stun1.l.google.com:19302" },
+        ],
       });
-      // 通信処理を実行
     } catch (err) {
-      // エラーを捕捉しクラッシュを回避
       console.error(err);
-      alert(
-        "WebRTC initialization failed. If you are using Incognito mode, the browser may be blocking local network paths. Please try in normal mode.",
-      );
+      connectBtn.title = "WebRTC初期化失敗";
+      connectBtn.style.color = "#f44336";
+      connectBtn.disabled = false;
+      alert("WebRTCの初期化に失敗しました。シークレットモードではWebRTCが制限される場合があります。通常モードでお試しください。");
+      return;
     }
+
     syncPeerConnection = pc;
     const dc = pc.createDataChannel("memo-channel");
     setupDataChannel(dc);
 
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
+    try {
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+    } catch (err) {
+      console.error("Offer creation failed:", err);
+      connectBtn.title = "Offer作成失敗";
+      connectBtn.style.color = "#f44336";
+      connectBtn.disabled = false;
+      disconnectSync();
+      return;
+    }
 
-    connectBtn.title = "Searching route(2/3)...";
+    connectBtn.title = "経路探索中(2/3)...";
 
+    // ICE gatheringを待つ（STUNで外部候補を取得するまで）
     await new Promise((resolve) => {
       let resolved = false;
       const finish = () => {
@@ -1682,6 +1761,7 @@
       } else {
         pc.addEventListener("icecandidate", (e) => {
           if (e.candidate) {
+            // srflx = STUNで取得した外部IP, relay = TURNリレー
             if (
               e.candidate.candidate.includes("srflx") ||
               e.candidate.candidate.includes("relay")
@@ -1689,54 +1769,63 @@
               finish();
             }
           } else {
+            // null candidate = gathering complete
             finish();
           }
         });
         pc.addEventListener("icegatheringstatechange", () => {
           if (pc.iceGatheringState === "complete") finish();
         });
-        setTimeout(finish, 3000);
+        // ★タイムアウトを5秒に延長（モバイル回線対応）
+        setTimeout(finish, 5000);
       }
     });
 
-    connectBtn.title = "Registering server(3/3)...";
+    connectBtn.title = "サーバー登録中(3/3)...";
     try {
       const res = await fetch(WORKER_URL + "/offer?id=" + sessionId, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(pc.localDescription),
       });
-      if (!res.ok) throw new Error("Upload failed");
+      if (!res.ok) throw new Error("Upload failed: " + res.status);
     } catch (err) {
-      connectBtn.title = "Server connection error";
+      connectBtn.title = "サーバー接続エラー";
       connectBtn.style.color = "#f44336";
       connectBtn.disabled = false;
       disconnectSync();
       return;
     }
 
+    // ★QRコードをOffer登録直後に表示（ユーザーがすぐ読み取れるように）
     const qrCanvas = document.getElementById("qr-image");
     new QRious({
       element: qrCanvas,
       value: connectUrl,
-      size: 120,
+      size: 150,
       background: "white",
       foreground: "black",
     });
-    document.getElementById("qr-container").style.display = "block";
-    connectBtn.title = "Waiting for mobile connection...";
-    connectBtn.style.color = "#4285f4";
-    connectBtn.disabled = false;
     const sessionIdText = document.getElementById("session-id-text");
     if (sessionIdText) {
-      // クリック可能なテキストリンクを生成
-      sessionIdText.innerHTML = `ID: ${sessionId}<br><span style="color:#007aff;text-decoration:underline;cursor:pointer;">URL Copy</span>`;
-      sessionIdText.onclick = (e) => {
+      sessionIdText.innerHTML = `<span style="font-size:11px;color:#555;">接続待機中...</span><br><span id="copy-url-btn" style="color:#007aff;text-decoration:underline;cursor:pointer;font-size:12px;">URLをコピー</span>`;
+      document.getElementById("copy-url-btn").onclick = (e) => {
         e.stopPropagation();
-        navigator.clipboard.writeText(connectUrl);
-        alert("URL copied!");
+        navigator.clipboard.writeText(connectUrl).then(() => {
+          document.getElementById("copy-url-btn").textContent = "コピー済！";
+          setTimeout(() => {
+            const el = document.getElementById("copy-url-btn");
+            if (el) el.textContent = "URLをコピー";
+          }, 2000);
+        });
       };
     }
+    document.getElementById("qr-container").style.display = "block";
+    connectBtn.title = "モバイル接続待機中...";
+    connectBtn.style.color = "#4285f4";
+    connectBtn.disabled = false;
 
+    // ★answerをポーリング（2秒間隔、最大60秒）
     let pollCount = 0;
     const maxPolls = 30;
     signalingPollInterval = setInterval(async () => {
@@ -1751,7 +1840,7 @@
       }
       if (pollCount > maxPolls) {
         clearInterval(signalingPollInterval);
-        connectBtn.title = "Connection timeout (60s)";
+        connectBtn.title = "接続タイムアウト(60秒)";
         connectBtn.style.color = "#f44336";
         document.getElementById("qr-container").style.display = "none";
         disconnectSync();
@@ -1766,7 +1855,9 @@
           const qr = document.getElementById("qr-container");
           if (qr) qr.style.display = "none";
         }
-      } catch (e) {}
+      } catch (e) {
+        // ポーリング中のエラーは無視して継続
+      }
     }, 2000);
   };
 
@@ -1774,79 +1865,116 @@
     const sessionId = new URLSearchParams(window.location.search).get("id");
     if (!sessionId || !window.location.pathname.endsWith("mobile.html")) return;
 
-    els.memoArea.placeholder = "Connecting to PC(1/3)...";
-    try {
-      let res;
-      // PCのアップロードを待つ
-      for (let i = 0; i < 10; i++) {
+    els.memoArea.placeholder = "PCに接続中(1/3)...";
+    els.memoArea.readOnly = true;
+    els.memoArea.style.backgroundColor = "#f5f5f5";
+
+    let res;
+    // PCのofferアップロードを待つ（最大20秒）
+    for (let i = 0; i < 10; i++) {
+      try {
         res = await fetch(WORKER_URL + "/offer?id=" + sessionId);
         if (res.ok) break;
-        const dots = ".".repeat((i % 3) + 1);
-        els.memoArea.placeholder = `Waiting for PC synchronization${dots}`;
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-      }
+      } catch (e) {}
+      const dots = ".".repeat((i % 3) + 1);
+      els.memoArea.placeholder = `PCからの接続を待機中${dots} (${i + 1}/10)`;
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
 
-      if (!res || !res.ok) {
-        els.memoArea.value =
-          "The session has expired. Please display the QR code again on the PC.";
-        return;
-      }
+    if (!res || !res.ok) {
+      els.memoArea.readOnly = false;
+      els.memoArea.style.backgroundColor = "";
+      els.memoArea.value = "セッションが見つかりません。PCでQRコードを再表示してください。";
+      return;
+    }
 
-      els.memoArea.placeholder = "Searching for route(2/3)...";
-      const offer = await res.json();
-      let pc;
-      try {
-        pc = new RTCPeerConnection({
-          iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-        });
-        // 通信処理を実行
-      } catch (err) {
-        // エラーを捕捉しクラッシュを回避
-        console.error(err);
-        connectBtn.style.color = "#f44336";
-        alert(
-          "WebRTC initialization failed. If you are using Incognito mode, the browser may be blocking local network paths. Please try in normal mode.",
-        );
-      }
+    els.memoArea.placeholder = "経路を探索中(2/3)...";
 
-      syncPeerConnection = pc;
-      pc.ondatachannel = (e) => {
-        setupDataChannel(e.channel);
-      };
+    let offer;
+    try {
+      offer = await res.json();
+    } catch (e) {
+      els.memoArea.value = "サーバーデータの解析に失敗しました。再試行してください。";
+      els.memoArea.readOnly = false;
+      els.memoArea.style.backgroundColor = "";
+      return;
+    }
 
+    let pc;
+    try {
+      pc = new RTCPeerConnection({
+        iceServers: [
+          { urls: "stun:stun.l.google.com:19302" },
+          { urls: "stun:stun1.l.google.com:19302" },
+        ],
+      });
+    } catch (err) {
+      console.error(err);
+      els.memoArea.readOnly = false;
+      els.memoArea.style.backgroundColor = "";
+      els.memoArea.value = "WebRTCの初期化に失敗しました。シークレットモードでは一部のブラウザで制限があります。";
+      return;
+    }
+
+    syncPeerConnection = pc;
+    pc.ondatachannel = (e) => {
+      setupDataChannel(e.channel);
+    };
+
+    try {
       await pc.setRemoteDescription(offer);
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
+    } catch (err) {
+      console.error("Answer creation failed:", err);
+      els.memoArea.value = "接続ネゴシエーションに失敗しました。再試行してください。";
+      els.memoArea.readOnly = false;
+      els.memoArea.style.backgroundColor = "";
+      disconnectSync();
+      return;
+    }
 
-      await new Promise((resolve) => {
-        if (pc.iceGatheringState === "complete") resolve();
-        else {
-          pc.addEventListener("icecandidate", (e) => {
-            if (e.candidate) {
-              if (
-                e.candidate.candidate.includes("srflx") ||
-                e.candidate.candidate.includes("relay")
-              ) {
-                resolve();
-              }
-            } else {
+    // ICE gatheringを待つ
+    await new Promise((resolve) => {
+      if (pc.iceGatheringState === "complete") resolve();
+      else {
+        pc.addEventListener("icecandidate", (e) => {
+          if (e.candidate) {
+            if (
+              e.candidate.candidate.includes("srflx") ||
+              e.candidate.candidate.includes("relay")
+            ) {
               resolve();
             }
-          });
-          setTimeout(resolve, 3000);
-        }
-      });
+          } else {
+            resolve();
+          }
+        });
+        pc.addEventListener("icegatheringstatechange", () => {
+          if (pc.iceGatheringState === "complete") resolve();
+        });
+        setTimeout(resolve, 5000);
+      }
+    });
 
-      els.memoArea.placeholder = "Registering server(3/3)...";
-      await fetch(WORKER_URL + "/answer?id=" + sessionId, {
+    els.memoArea.placeholder = "サーバーに登録中(3/3)...";
+    try {
+      const postRes = await fetch(WORKER_URL + "/answer?id=" + sessionId, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(pc.localDescription),
       });
-
-      els.memoArea.placeholder = "Waiting for sync completion...";
+      if (!postRes.ok) throw new Error("Answer upload failed: " + postRes.status);
     } catch (err) {
-      els.memoArea.value = "An error occurred during communication";
+      console.error(err);
+      els.memoArea.value = "Answerのサーバー登録に失敗しました。再試行してください。";
+      els.memoArea.readOnly = false;
+      els.memoArea.style.backgroundColor = "";
+      disconnectSync();
+      return;
     }
+
+    els.memoArea.placeholder = "同期完了を待機中...";
   }
   window.addEventListener("offline", () => {
     const btn = document.getElementById("connect-btn");
