@@ -212,10 +212,10 @@
       if (data.type === "ping" || data.type === "pong") return;
 
       if (data.type === "sync_state" && data.tabs && data.tabs.length > 0) {
-        const currentTab = state.tabs.find((t) => t.id === state.activeTabId);
-        const newTab = data.tabs.find((t) => t.id === data.activeTabId);
+        const activeTabBeforeSync = state.tabs.find((t) => t.id === state.activeTabId);
+        const sameTabInIncoming = data.tabs.find((t) => t.id === state.activeTabId);
 
-        if (currentTab && newTab && currentTab.text !== newTab.text) {
+        if (activeTabBeforeSync && sameTabInIncoming && activeTabBeforeSync.text !== sameTabInIncoming.text) {
           pushSnapshot();
         }
 
@@ -1331,7 +1331,18 @@
       }
     }
   });
-  els.memoArea.addEventListener("input", () => {
+  // ★修正: 引数に event (e) を受け取るように変更
+  els.memoArea.addEventListener("input", (e) => {
+    // ★追加: iPhoneのシェイク等によるOSネイティブの「取り消し」「やり直し」を自作履歴機能に流す
+    if (e.inputType === "historyUndo") {
+      handleHistory(true);
+      return;
+    }
+    if (e.inputType === "historyRedo") {
+      handleHistory(false);
+      return;
+    }
+
     updateCharCount();
     if (els.backdrop) els.backdrop.innerHTML = "";
 
