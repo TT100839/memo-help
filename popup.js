@@ -20,6 +20,7 @@
   let incomingFileInfo = null;
   const incomingFiles = {};
   const receivingFiles = {};
+  let incomingFileSize = 0;
 
   let db;
   let syncDataChannel = null;
@@ -48,7 +49,7 @@
 
     isSendingFile = false;
   }
-async function sendFileAtMaxSpeed(file, tag, fileName) {
+  async function sendFileAtMaxSpeed(file, tag, fileName) {
     if (!syncDataChannel || syncDataChannel.readyState !== "open") return;
 
     syncDataChannel.bufferedAmountLowThreshold = 32 * 1024;
@@ -85,13 +86,13 @@ async function sendFileAtMaxSpeed(file, tag, fileName) {
         offset += chunkSize;
 
         // ★ 解決策2: チャンク送信の合間に非同期のインターバルを挟みテキスト通信の割り込みを許可する
-        if (offset % (chunkSize * 20) === 0) { 
+        if (offset % (chunkSize * 20) === 0) {
           // requestAnimationFrameを用いることでブラウザのUI描画とパケット処理を両立させる
           await new Promise((resolve) => requestAnimationFrame(resolve));
         }
       }
     };
-    
+
     await sendChunk();
     syncDataChannel.send(JSON.stringify({ type: "file_end" }));
   }
@@ -106,18 +107,27 @@ async function sendFileAtMaxSpeed(file, tag, fileName) {
       runtime: { getURL: (p) => p },
     };
   }
-function handleSyncMessage(event) {
+  function handleSyncMessage(event) {
     if (typeof event.data !== "string") {
       incomingFile.push(event.data);
-      
+
       // プログレス表示を files-area 内の要素へ反映
-      if (incomingFileInfo && incomingFileInfo.size > 0 && incomingFile.length % 50 === 0) {
+      if (
+        incomingFileInfo &&
+        incomingFileInfo.size > 0 &&
+        incomingFile.length % 50 === 0
+      ) {
         const received = incomingFile.length * (16 * 1024);
-        const percent = Math.min(100, Math.floor((received / incomingFileInfo.size) * 100));
-        
+        const percent = Math.min(
+          100,
+          Math.floor((received / incomingFileInfo.size) * 100),
+        );
+
         if (receivingFiles[incomingFileInfo.tag]) {
           receivingFiles[incomingFileInfo.tag].percent = percent;
-          const progressSpan = document.getElementById(`progress-${incomingFileInfo.tag}`);
+          const progressSpan = document.getElementById(
+            `progress-${incomingFileInfo.tag}`,
+          );
           if (progressSpan) progressSpan.textContent = `(受信中 ${percent}%)`;
         }
       }
@@ -125,12 +135,26 @@ function handleSyncMessage(event) {
     }
 
     try {
-      const data = JSON.parse(event.data);
+      let data = JSON.parse(event.data);
 
+      // ★ ここから追加：テキスト分割データの結合処理
+      if (data.type === "sync_state_start") {
+        incomingTextChunks = [];
+        return;
+      }
+      if (data.type === "sync_state_chunk") {
+        incomingTextChunks.push(data.data);
+        return;
+      }
+      if (data.type === "sync_state_end") {
+        const fullText = incomingTextChunks.join("");
+        incomingTextChunks = [];
+        data = JSON.parse(fullText); // 結合したデータをパースし直し data 変数に上書き
+      }
       if (data.type === "file_start") {
         incomingFileInfo = data;
         incomingFile = [];
-        
+
         // ★ 読み込み開始を登録し、files-area に表示させる
         receivingFiles[data.tag] = { name: data.name, percent: 0 };
         updateFiles();
@@ -141,14 +165,14 @@ function handleSyncMessage(event) {
         const fileTag = incomingFileInfo.tag;
         const mimeType = incomingFileInfo.mimeType;
         const chunks = incomingFile;
-        
+
         incomingFile = [];
         incomingFileInfo = null;
-        
+
         if (receivingFiles[fileTag]) {
-           receivingFiles[fileTag].percent = '展開中...';
-           const progressSpan = document.getElementById(`progress-${fileTag}`);
-           if (progressSpan) progressSpan.textContent = `(展開中...)`;
+          receivingFiles[fileTag].percent = "展開中...";
+          const progressSpan = document.getElementById(`progress-${fileTag}`);
+          if (progressSpan) progressSpan.textContent = `(展開中...)`;
         }
 
         setTimeout(() => {
@@ -204,9 +228,14 @@ function handleSyncMessage(event) {
         }
 
         if (data.searchVisible !== undefined) {
-          els.searchContainer.style.display = data.searchVisible ? "flex" : "none";
+          els.searchContainer.style.display = data.searchVisible
+            ? "flex"
+            : "none";
         }
-        if (data.searchValue !== undefined && els.searchInput.value !== data.searchValue) {
+        if (
+          data.searchValue !== undefined &&
+          els.searchInput.value !== data.searchValue
+        ) {
           els.searchInput.value = data.searchValue;
         }
 
@@ -300,14 +329,18 @@ function handleSyncMessage(event) {
       syncDataChannel.onmessage = null;
       syncDataChannel.onclose = null;
       syncDataChannel.onerror = null;
-      try { syncDataChannel.close(); } catch(e) {}
+      try {
+        syncDataChannel.close();
+      } catch (e) {}
       syncDataChannel = null;
     }
     if (syncPeerConnection) {
       syncPeerConnection.onicecandidate = null;
       syncPeerConnection.ondatachannel = null;
       syncPeerConnection.onconnectionstatechange = null;
-      try { syncPeerConnection.close(); } catch(e) {}
+      try {
+        syncPeerConnection.close();
+      } catch (e) {}
       syncPeerConnection = null;
     }
     incomingFile = [];
@@ -389,9 +422,6 @@ function handleSyncMessage(event) {
         applyModeLayout();
         switchTab(state.activeTabId);
         updateUndoRedo();
-        if (!isMobileMode) {
-          els.memoArea.focus();
-        }
       },
     );
     chrome.storage.onChanged.addListener((changes, area) => {
@@ -435,6 +465,14 @@ function handleSyncMessage(event) {
   }
 
   function saveToStorage() {
+    const currentTab = state.tabs.find((t) => t.id === state.activeTabId);
+    if (currentTab && els.memoArea) {
+      currentTab.scrollTop = els.memoArea.scrollTop;
+      if (typeof els.memoArea.selectionStart === "number") {
+        currentTab.selectionStart = els.memoArea.selectionStart;
+        currentTab.selectionEnd = els.memoArea.selectionEnd;
+      }
+    }
     if (
       typeof chrome !== "undefined" &&
       chrome.storage &&
@@ -458,15 +496,26 @@ function handleSyncMessage(event) {
       }
     }
     if (syncDataChannel?.readyState === "open") {
-      syncDataChannel.send(
-        JSON.stringify({
-          type: "sync_state",
-          tabs: state.tabs,
-          activeTabId: state.activeTabId,
-          searchVisible: els.searchContainer.style.display === "flex",
-          searchValue: els.searchInput.value,
-        }),
-      );
+      const statePayload = JSON.stringify({
+        type: "sync_state",
+        tabs: state.tabs,
+        activeTabId: state.activeTabId,
+        searchVisible: els.searchContainer.style.display === "flex",
+        searchValue: els.searchInput.value,
+      });
+      const chunkSize = 10000;
+      syncDataChannel.send(JSON.stringify({ type: "sync_state_start" }));
+
+      for (let i = 0; i < statePayload.length; i += chunkSize) {
+        syncDataChannel.send(
+          JSON.stringify({
+            type: "sync_state_chunk",
+            data: statePayload.slice(i, i + chunkSize),
+          }),
+        );
+      }
+
+      syncDataChannel.send(JSON.stringify({ type: "sync_state_end" }));
     }
   }
 
@@ -516,7 +565,7 @@ function handleSyncMessage(event) {
       els.linksArea.appendChild(a);
     });
   }
-function updateFiles() {
+  function updateFiles() {
     if (!els.filesArea) return;
 
     const processFiles = (dbKeys = []) => {
@@ -531,10 +580,14 @@ function updateFiles() {
       const receivingKeys = Object.keys(receivingFiles); // ★追加: 受信中のキーを取得
 
       // ★DB、メモリ、受信中のキーをすべて結合
-      const allKeys = Array.from(new Set([...dbKeys, ...memoryKeys, ...receivingKeys]));
+      const allKeys = Array.from(
+        new Set([...dbKeys, ...memoryKeys, ...receivingKeys]),
+      );
       let activeFiles = allKeys.filter((key) => currentText.includes(key));
 
-      activeFiles.sort((a, b) => currentText.indexOf(a) - currentText.indexOf(b));
+      activeFiles.sort(
+        (a, b) => currentText.indexOf(a) - currentText.indexOf(b),
+      );
 
       if (!activeFiles.length) {
         els.filesArea.style.display = "none";
@@ -595,8 +648,10 @@ function updateFiles() {
           downloadBtn.style.borderRadius = "4px";
           downloadBtn.style.transition = "background-color 0.2s";
           downloadBtn.style.cursor = "pointer";
-          downloadBtn.onmouseenter = () => (downloadBtn.style.backgroundColor = "rgba(130,130,130,0.2)");
-          downloadBtn.onmouseleave = () => (downloadBtn.style.backgroundColor = "transparent");
+          downloadBtn.onmouseenter = () =>
+            (downloadBtn.style.backgroundColor = "rgba(130,130,130,0.2)");
+          downloadBtn.onmouseleave = () =>
+            (downloadBtn.style.backgroundColor = "transparent");
           downloadBtn.innerHTML = `
             <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
@@ -625,7 +680,10 @@ function updateFiles() {
           wrapper.draggable = true;
           wrapper.addEventListener("dragstart", (e) => {
             const mimeType = blob.type || "application/octet-stream";
-            e.dataTransfer.setData("DownloadURL", `${mimeType}:${displayStr}:${url}`);
+            e.dataTransfer.setData(
+              "DownloadURL",
+              `${mimeType}:${displayStr}:${url}`,
+            );
           });
         };
 
@@ -653,7 +711,10 @@ function updateFiles() {
           displayFile(incomingFiles[fileTag]);
         } else if (db) {
           try {
-            const getReq = db.transaction("files", "readonly").objectStore("files").get(fileTag);
+            const getReq = db
+              .transaction("files", "readonly")
+              .objectStore("files")
+              .get(fileTag);
             getReq.onsuccess = () => {
               if (getReq.result) displayFile(getReq.result);
               else {
@@ -818,11 +879,11 @@ function updateFiles() {
       state.targetTabId = state.activeTabId;
     }
 
-    const prevTab = state.tabs.find((t) => t.id === state.activeTabId);
-    if (prevTab) {
-      prevTab.scrollTop = els.memoArea.scrollTop;
-      // カーソル位置を保存（フォーカスがmemoAreaにある時のみ）
-      if (document.activeElement === els.memoArea) {
+    // 【変更箇所】別のタブに切り替わる時だけ保存するように条件で囲む
+    if (state.activeTabId !== id && state.activeTabId !== null) {
+      const prevTab = state.tabs.find((t) => t.id === state.activeTabId);
+      if (prevTab && typeof els.memoArea.selectionStart === "number") {
+        prevTab.scrollTop = els.memoArea.scrollTop;
         prevTab.selectionStart = els.memoArea.selectionStart;
         prevTab.selectionEnd = els.memoArea.selectionEnd;
       }
@@ -830,27 +891,54 @@ function updateFiles() {
 
     state.activeTabId = id;
     const t = state.tabs.find((t) => t.id === id);
-    // ★ \n を末尾に追加しない（フォーカスジャンプの原因）
-    // テキストはそのまま設定する
     els.memoArea.value = t ? t.text : "";
 
-    // スクロール位置を復元、カーソル位置はフォーカス時にのみ復元
-    requestAnimationFrame(() => {
+    // ★ 変更箇所1: setTimeoutの外にあった updateUI() を削除し描画処理だけ残す
+    renderTabs();
+    if (els.backdrop) els.backdrop.innerHTML = "";
+
+    setTimeout(() => {
       if (t) {
-        els.memoArea.scrollTop = t.scrollTop !== undefined ? t.scrollTop : 0;
-        // フォーカスがある場合のみカーソル位置を復元（末尾ジャンプを防ぐ）
-        if (document.activeElement === els.memoArea && t.selectionStart !== undefined) {
-          const safeStart = Math.min(t.selectionStart, els.memoArea.value.length);
+        els.memoArea.focus();
+        if (t.selectionStart !== undefined) {
+          const safeStart = Math.min(
+            t.selectionStart,
+            els.memoArea.value.length,
+          );
           const safeEnd = Math.min(t.selectionEnd, els.memoArea.value.length);
           els.memoArea.setSelectionRange(safeStart, safeEnd);
         }
+        if (t.scrollTop !== undefined) {
+          els.memoArea.scrollTop = t.scrollTop;
+        }
       }
-    });
-
-    renderTabs();
-    updateUI();
-    if (els.backdrop) els.backdrop.innerHTML = "";
+      // ★ 変更箇所2: カーソル復元が完了した後に updateUI() を実行する
+      updateUI();
+    }, 10);
   }
+  function saveCursorPosition() {
+    const t = state.tabs.find((t) => t.id === state.activeTabId);
+    if (t && typeof els.memoArea.selectionStart === "number") {
+      t.selectionStart = els.memoArea.selectionStart;
+      t.selectionEnd = els.memoArea.selectionEnd;
+      saveToStorage();
+    }
+  }
+
+  els.memoArea.addEventListener("mouseup", saveCursorPosition);
+  els.memoArea.addEventListener("keyup", (e) => {
+    const moveKeys = [
+      "ArrowUp",
+      "ArrowDown",
+      "ArrowLeft",
+      "ArrowRight",
+      "Home",
+      "End",
+      "PageUp",
+      "PageDown",
+    ];
+    if (moveKeys.includes(e.code)) saveCursorPosition();
+  });
 
   function addTab() {
     insertTabAt(state.tabs.length);
@@ -1257,6 +1345,33 @@ function updateFiles() {
     }
     state.timer = setTimeout(() => (state.timer = null), 500);
   });
+  function updateCursorPositionAndSave() {
+    const t = state.tabs.find((t) => t.id === state.activeTabId);
+    if (t && typeof els.memoArea.selectionStart === "number") {
+      t.selectionStart = els.memoArea.selectionStart;
+      t.selectionEnd = els.memoArea.selectionEnd;
+      saveToStorage();
+    }
+  }
+  els.memoArea.addEventListener("mouseup", updateCursorPositionAndSave);
+
+  // 矢印キーなどでカーソルを移動した時
+  els.memoArea.addEventListener("keyup", (e) => {
+    const moveKeys = [
+      "ArrowUp",
+      "ArrowDown",
+      "ArrowLeft",
+      "ArrowRight",
+      "Home",
+      "End",
+      "PageUp",
+      "PageDown",
+    ];
+    if (moveKeys.includes(e.code)) {
+      updateCursorPositionAndSave();
+    }
+  });
+  els.memoArea.addEventListener("blur", updateCursorPositionAndSave);
 
   els.memoArea.addEventListener(
     "scroll",
@@ -1304,8 +1419,12 @@ function updateFiles() {
   });
   // IME変換中フラグ
   let isComposing = false;
-  els.memoArea.addEventListener("compositionstart", () => { isComposing = true; });
-  els.memoArea.addEventListener("compositionend", () => { isComposing = false; });
+  els.memoArea.addEventListener("compositionstart", () => {
+    isComposing = true;
+  });
+  els.memoArea.addEventListener("compositionend", () => {
+    isComposing = false;
+  });
 
   document.addEventListener("keydown", (e) => {
     if (
@@ -1531,6 +1650,7 @@ function updateFiles() {
     input.click();
   };
   window.addEventListener("pagehide", () => {
+    saveToStorage();
     if (db) {
       const tx = db.transaction("files", "readonly");
       const req = tx.objectStore("files").getAllKeys();
@@ -1550,7 +1670,7 @@ function updateFiles() {
   const WORKER_URL = "https://memo-signaling.tanakasan32400.workers.dev";
   const MOBILE_SITE_URL = "https://tt100839.github.io/memo-help/mobile.html";
 
-function setupDataChannel(dc) {
+  function setupDataChannel(dc) {
     syncDataChannel = dc;
     dc.binaryType = "arraybuffer";
     dc.onmessage = handleSyncMessage;
@@ -1585,8 +1705,14 @@ function setupDataChannel(dc) {
     };
 
     const stopHeartbeat = () => {
-      if (heartbeatInterval) { clearInterval(heartbeatInterval); heartbeatInterval = null; }
-      if (heartbeatTimeout) { clearTimeout(heartbeatTimeout); heartbeatTimeout = null; }
+      if (heartbeatInterval) {
+        clearInterval(heartbeatInterval);
+        heartbeatInterval = null;
+      }
+      if (heartbeatTimeout) {
+        clearTimeout(heartbeatTimeout);
+        heartbeatTimeout = null;
+      }
     };
 
     // pingメッセージ処理をhandleSyncMessageに追加
@@ -1603,7 +1729,10 @@ function setupDataChannel(dc) {
             return;
           }
           if (d.type === "pong") {
-            if (heartbeatTimeout) { clearTimeout(heartbeatTimeout); heartbeatTimeout = null; }
+            if (heartbeatTimeout) {
+              clearTimeout(heartbeatTimeout);
+              heartbeatTimeout = null;
+            }
             return;
           }
         } catch (e) {}
@@ -1744,7 +1873,9 @@ function setupDataChannel(dc) {
       connectBtn.title = "WebRTC初期化失敗";
       connectBtn.style.color = "#f44336";
       connectBtn.disabled = false;
-      alert("WebRTCの初期化に失敗しました。シークレットモードではWebRTCが制限される場合があります。通常モードでお試しください。");
+      alert(
+        "WebRTCの初期化に失敗しました。シークレットモードではWebRTCが制限される場合があります。通常モードでお試しください。",
+      );
       return;
     }
 
@@ -1903,7 +2034,8 @@ function setupDataChannel(dc) {
     if (!res || !res.ok) {
       els.memoArea.readOnly = false;
       els.memoArea.style.backgroundColor = "";
-      els.memoArea.value = "セッションが見つかりません。PCでQRコードを再表示してください。";
+      els.memoArea.value =
+        "セッションが見つかりません。PCでQRコードを再表示してください。";
       return;
     }
 
@@ -1913,7 +2045,8 @@ function setupDataChannel(dc) {
     try {
       offer = await res.json();
     } catch (e) {
-      els.memoArea.value = "サーバーデータの解析に失敗しました。再試行してください。";
+      els.memoArea.value =
+        "サーバーデータの解析に失敗しました。再試行してください。";
       els.memoArea.readOnly = false;
       els.memoArea.style.backgroundColor = "";
       return;
@@ -1931,7 +2064,8 @@ function setupDataChannel(dc) {
       console.error(err);
       els.memoArea.readOnly = false;
       els.memoArea.style.backgroundColor = "";
-      els.memoArea.value = "WebRTCの初期化に失敗しました。シークレットモードでは一部のブラウザで制限があります。";
+      els.memoArea.value =
+        "WebRTCの初期化に失敗しました。シークレットモードでは一部のブラウザで制限があります。";
       return;
     }
 
@@ -1946,7 +2080,8 @@ function setupDataChannel(dc) {
       await pc.setLocalDescription(answer);
     } catch (err) {
       console.error("Answer creation failed:", err);
-      els.memoArea.value = "接続ネゴシエーションに失敗しました。再試行してください。";
+      els.memoArea.value =
+        "接続ネゴシエーションに失敗しました。再試行してください。";
       els.memoArea.readOnly = false;
       els.memoArea.style.backgroundColor = "";
       disconnectSync();
@@ -1983,10 +2118,12 @@ function setupDataChannel(dc) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(pc.localDescription),
       });
-      if (!postRes.ok) throw new Error("Answer upload failed: " + postRes.status);
+      if (!postRes.ok)
+        throw new Error("Answer upload failed: " + postRes.status);
     } catch (err) {
       console.error(err);
-      els.memoArea.value = "Answerのサーバー登録に失敗しました。再試行してください。";
+      els.memoArea.value =
+        "Answerのサーバー登録に失敗しました。再試行してください。";
       els.memoArea.readOnly = false;
       els.memoArea.style.backgroundColor = "";
       disconnectSync();
