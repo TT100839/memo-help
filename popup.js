@@ -212,10 +212,18 @@
       if (data.type === "ping" || data.type === "pong") return;
 
       if (data.type === "sync_state" && data.tabs && data.tabs.length > 0) {
-        const activeTabBeforeSync = state.tabs.find((t) => t.id === state.activeTabId);
-        const sameTabInIncoming = data.tabs.find((t) => t.id === state.activeTabId);
+        const activeTabBeforeSync = state.tabs.find(
+          (t) => t.id === state.activeTabId,
+        );
+        const sameTabInIncoming = data.tabs.find(
+          (t) => t.id === state.activeTabId,
+        );
 
-        if (activeTabBeforeSync && sameTabInIncoming && activeTabBeforeSync.text !== sameTabInIncoming.text) {
+        if (
+          activeTabBeforeSync &&
+          sameTabInIncoming &&
+          activeTabBeforeSync.text !== sameTabInIncoming.text
+        ) {
           pushSnapshot();
         }
 
@@ -223,7 +231,7 @@
         state.activeTabId = data.activeTabId;
 
         const t = state.tabs.find((t) => t.id === state.activeTabId);
-        if (els.memoArea.value !== (t ? t.text : "")) {
+        if (els.memoArea.value !== (t ? t.text : "") && document.activeElement !== els.memoArea) {
           els.memoArea.value = t ? t.text : "";
         }
 
@@ -428,7 +436,9 @@
       if (area === "local" && changes.tabs) {
         state.tabs = changes.tabs.newValue || [];
         const currentTab = state.tabs.find((t) => t.id === state.activeTabId);
-        if (currentTab && els.memoArea.value !== currentTab.text) {
+        
+        // 追加: テキストエリアにフォーカスがない場合のみ更新を許可
+        if (currentTab && els.memoArea.value !== currentTab.text && document.activeElement !== els.memoArea) {
           els.memoArea.value = currentTab.text;
           updateVisuals();
         }
@@ -1877,6 +1887,17 @@
         iceServers: [
           { urls: "stun:stun.l.google.com:19302" },
           { urls: "stun:stun1.l.google.com:19302" },
+          // ★ 無料のオープンTURNサーバーを追加
+          {
+            urls: "turn:openrelay.metered.ca:80",
+            username: "openrelayproject",
+            credential: "openrelayproject",
+          },
+          {
+            urls: "turn:openrelay.metered.ca:443",
+            username: "openrelayproject",
+            credential: "openrelayproject",
+          },
         ],
       });
     } catch (err) {
@@ -2069,6 +2090,17 @@
         iceServers: [
           { urls: "stun:stun.l.google.com:19302" },
           { urls: "stun:stun1.l.google.com:19302" },
+          // ★ 無料のオープンTURNサーバーを追加
+          {
+            urls: "turn:openrelay.metered.ca:80",
+            username: "openrelayproject",
+            credential: "openrelayproject",
+          },
+          {
+            urls: "turn:openrelay.metered.ca:443",
+            username: "openrelayproject",
+            credential: "openrelayproject",
+          },
         ],
       });
     } catch (err) {
@@ -2099,27 +2131,30 @@
       return;
     }
 
-    // ICE gatheringを待つ
+    // 修正後
     await new Promise((resolve) => {
-      if (pc.iceGatheringState === "complete") resolve();
-      else {
-        pc.addEventListener("icecandidate", (e) => {
-          if (e.candidate) {
-            if (
-              e.candidate.candidate.includes("srflx") ||
-              e.candidate.candidate.includes("relay")
-            ) {
-              resolve();
-            }
-          } else {
+      if (pc.iceGatheringState === "complete") {
+        resolve();
+        return;
+      }
+      // ★ srflx を待たず、gatheringComplete か 5秒タイムアウトで送信
+      const finish = (() => {
+        let done = false;
+        return () => {
+          if (!done) {
+            done = true;
             resolve();
           }
-        });
-        pc.addEventListener("icegatheringstatechange", () => {
-          if (pc.iceGatheringState === "complete") resolve();
-        });
-        setTimeout(resolve, 10000);
-      }
+        };
+      })();
+
+      pc.addEventListener("icegatheringstatechange", () => {
+        if (pc.iceGatheringState === "complete") finish();
+      });
+      pc.addEventListener("icecandidate", (e) => {
+        if (!e.candidate) finish(); // null = gathering complete
+      });
+      setTimeout(finish, 5000); // 5秒待てば十分
     });
 
     els.memoArea.placeholder = "サーバーに登録中(3/3)...";
@@ -2142,6 +2177,18 @@
     }
 
     els.memoArea.placeholder = "同期完了を待機中...";
+    pc.addEventListener("connectionstatechange", () => {
+      if (pc.connectionState === "failed") {
+        els.memoArea.placeholder =
+          "接続に失敗しました。QRコードを再表示してください。";
+        els.memoArea.readOnly = false;
+        els.memoArea.style.backgroundColor = "";
+        disconnectSync();
+      }
+      if (pc.connectionState === "connected") {
+        els.memoArea.placeholder = "";
+      }
+    });
   }
   window.addEventListener("offline", () => {
     const btn = document.getElementById("connect-btn");
