@@ -2145,17 +2145,16 @@
     const overlayAdContainer = document.getElementById("overlay-ad-container");
     let isSyncConnected = false;
 
-    if (inlineOverlay) inlineOverlay.style.display = "flex";
+    if (inlineOverlay) inlineOverlay.classList.remove("hidden-overlay");
     if (overlayCloseBtn) overlayCloseBtn.style.display = "none";
 
     const closeInlineOverlay = () => {
       if (!inlineOverlay) return;
 
-      // ★修正: キャンセル処理を削除し、通信完了後に「閉じる」機能のみ残す
       els.memoArea.readOnly = false;
       els.memoArea.style.backgroundColor = "";
       els.memoArea.placeholder = "";
-      inlineOverlay.style.display = "none";
+      inlineOverlay.classList.add("hidden-overlay");
     };
 
     // 広告以外（余白）をタップした時の処理
@@ -2189,7 +2188,7 @@
     // PCのofferアップロードを待つ（最大20秒）
     for (let i = 0; i < 10; i++) {
       // ユーザーが余白をタップしてキャンセルした場合、ループを抜ける
-      if (inlineOverlay && inlineOverlay.style.display === "none") return;
+      if (inlineOverlay && inlineOverlay.classList.contains("hidden-overlay")) return;
 
       try {
         res = await fetch(
