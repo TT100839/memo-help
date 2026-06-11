@@ -149,7 +149,8 @@
           const progressSpan = document.getElementById(
             `progress-${incomingFileInfo.tag}`,
           );
-          if (progressSpan) progressSpan.textContent = `(受信中 ${percent}%)`;
+          if (progressSpan)
+            progressSpan.textContent = `(Receiving ${percent}%)`;
         }
       }
       return;
@@ -191,9 +192,9 @@
         incomingFileInfo = null;
 
         if (receivingFiles[fileTag]) {
-          receivingFiles[fileTag].percent = "展開中...";
+          receivingFiles[fileTag].percent = "Processing...";
           const progressSpan = document.getElementById(`progress-${fileTag}`);
-          if (progressSpan) progressSpan.textContent = `(展開中...)`;
+          if (progressSpan) progressSpan.textContent = `(Processing...)`;
         }
 
         setTimeout(() => {
@@ -682,7 +683,7 @@
         if (!isMobile) {
           downloadBtn = document.createElement("a");
           downloadBtn.download = displayStr;
-          downloadBtn.title = "ダウンロード";
+          downloadBtn.title = "Download file";
           // (中略 - 既存のスタイル設定)
           downloadBtn.style.color = "inherit";
           downloadBtn.style.display = "flex";
@@ -1878,7 +1879,7 @@
         }
         const btn = document.getElementById("connect-btn");
         if (btn) {
-          btn.title = "モバイルに接続済み（クリックで切断）";
+          btn.title = "Connected to mobile (click to disconnect)";
           btn.style.color = "#0f9d58";
           btn.disabled = false;
         }
@@ -1897,16 +1898,16 @@
     const oncloseHandler = () => {
       stopHeartbeat();
       els.memoArea.placeholder =
-        "切断されました。QRコードを再表示して再接続してください。";
-      if (!els.charCount.textContent.includes("切断")) {
-        els.charCount.textContent = "切断 " + els.charCount.textContent;
+        "Disconnected. Please show the QR code again to reconnect.";
+      if (!els.charCount.textContent.includes("Disconnected")) {
+        els.charCount.textContent = "Disconnected " + els.charCount.textContent;
       }
       els.charCount.style.color = "#f44336";
 
       if (!isMobileMode) {
         const btn = document.getElementById("connect-btn");
         if (btn) {
-          btn.title = "切断されました。クリックして再接続。";
+          btn.title = "Disconnected. Click to reconnect.";
           btn.style.color = "#f44336";
           btn.disabled = false;
         }
@@ -1954,7 +1955,7 @@
       return;
     }
 
-    connectBtn.title = "準備中(1/3)...";
+    connectBtn.title = "Preparing... (1/3)";
     connectBtn.style.color = "#f4b400";
     connectBtn.disabled = true;
 
@@ -1981,11 +1982,11 @@
       });
     } catch (err) {
       console.error(err);
-      connectBtn.title = "WebRTC初期化失敗";
+      connectBtn.title = "WebRTC initialization failed";
       connectBtn.style.color = "#f44336";
       connectBtn.disabled = false;
       alert(
-        "WebRTCの初期化に失敗しました。シークレットモードではWebRTCが制限される場合があります。通常モードでお試しください。",
+        "Failed to initialize WebRTC. WebRTC may be restricted in secret mode. Please try again in normal mode.",
       );
       return;
     }
@@ -1999,15 +2000,15 @@
       await pc.setLocalDescription(offer);
     } catch (err) {
       console.error("Offer creation failed:", err);
-      connectBtn.title = "Offer作成失敗";
+      connectBtn.title = "Offer creation failed";
       connectBtn.style.color = "#f44336";
       connectBtn.disabled = false;
       disconnectSync();
       return;
     }
 
-    connectBtn.title = "経路探索中(2/3)...";
-// PC側・モバイル側の経路探索ブロックを以下に置き換え
+    connectBtn.title = "Exploring routes... (2/3)";
+    // PC側・モバイル側の経路探索ブロックを以下に置き換え
     await new Promise((resolve) => {
       let resolved = false;
       let timeoutId;
@@ -2025,7 +2026,10 @@
           if (e.candidate) {
             // srflx(STUN) または relay(TURN) が見つかったら、
             // 少しだけ待機(500ms)して複数の候補を確保してから早期終了する
-            if (e.candidate.candidate.includes("srflx") || e.candidate.candidate.includes("relay")) {
+            if (
+              e.candidate.candidate.includes("srflx") ||
+              e.candidate.candidate.includes("relay")
+            ) {
               setTimeout(finish, 500);
             }
           } else {
@@ -2040,7 +2044,7 @@
       }
     });
 
-    connectBtn.title = "サーバー登録中(3/3)...";
+    connectBtn.title = "Registering with server... (3/3)";
     try {
       const res = await fetch(WORKER_URL + "/offer?id=" + sessionId, {
         method: "POST",
@@ -2049,7 +2053,7 @@
       });
       if (!res.ok) throw new Error("Upload failed: " + res.status);
     } catch (err) {
-      connectBtn.title = "サーバー接続エラー";
+      connectBtn.title = "Server connection error";
       connectBtn.style.color = "#f44336";
       connectBtn.disabled = false;
       disconnectSync();
@@ -2067,20 +2071,20 @@
     });
     const sessionIdText = document.getElementById("session-id-text");
     if (sessionIdText) {
-      sessionIdText.innerHTML = `<span style="font-size:11px;color:#555;">接続待機中...</span><br><span id="copy-url-btn" style="color:#007aff;text-decoration:underline;cursor:pointer;font-size:12px;">URLをコピー</span>`;
+      sessionIdText.innerHTML = `<span style="font-size:11px;color:#555;">Waiting for connection...</span><br><span id="copy-url-btn" style="color:#007aff;text-decoration:underline;cursor:pointer;font-size:12px;">Copy URL</span>`;
       document.getElementById("copy-url-btn").onclick = (e) => {
         e.stopPropagation();
         navigator.clipboard.writeText(connectUrl).then(() => {
-          document.getElementById("copy-url-btn").textContent = "コピー済！";
+          document.getElementById("copy-url-btn").textContent = "Copied!";
           setTimeout(() => {
             const el = document.getElementById("copy-url-btn");
-            if (el) el.textContent = "URLをコピー";
+            if (el) el.textContent = "Copy URL";
           }, 2000);
         });
       };
     }
     document.getElementById("qr-container").style.display = "block";
-    connectBtn.title = "モバイル接続待機中...";
+    connectBtn.title = "Waiting for mobile connection...";
     connectBtn.style.color = "#4285f4";
     connectBtn.disabled = false;
 
@@ -2106,7 +2110,14 @@
         return;
       }
       try {
-        const res = await fetch(WORKER_URL + "/answer?id=" + sessionId);
+        // ★修正: キャッシュを無効化して確実に最新のAnswerを取得する
+        const res = await fetch(WORKER_URL + "/answer?id=" + sessionId, {
+          cache: "no-store",
+          headers: {
+            "Cache-Control": "no-cache",
+            Pragma: "no-cache",
+          },
+        });
         if (res.ok) {
           const answer = await res.json();
           await pc.setRemoteDescription(answer);
@@ -2132,11 +2143,17 @@
     // PCのofferアップロードを待つ（最大20秒）
     for (let i = 0; i < 10; i++) {
       try {
-        res = await fetch(WORKER_URL + "/offer?id=" + sessionId);
+        res = await fetch(WORKER_URL + "/offer?id=" + sessionId, {
+          cache: "no-store", // ★追加: キャッシュを読まず最新を取得
+          headers: {
+            "Cache-Control": "no-cache",
+            Pragma: "no-cache",
+          },
+        });
         if (res.ok) break;
       } catch (e) {}
       const dots = ".".repeat((i % 3) + 1);
-      els.memoArea.placeholder = `PCからの接続を待機中${dots} (${i + 1}/10)`;
+      els.memoArea.placeholder = `Waiting for connection from PC${dots} (${i + 1}/10)`;
       await new Promise((resolve) => setTimeout(resolve, 2000));
     }
 
@@ -2144,18 +2161,17 @@
       els.memoArea.readOnly = false;
       els.memoArea.style.backgroundColor = "";
       els.memoArea.value =
-        "セッションが見つかりません。PCでQRコードを再表示してください。";
+        "Session not found. Please display the QR code again on the PC.";
       return;
     }
 
-    els.memoArea.placeholder = "経路を探索中(2/3)...";
+    els.memoArea.placeholder = "Exploring routes... (2/3)...";
 
     let offer;
     try {
       offer = await res.json();
     } catch (e) {
-      els.memoArea.value =
-        "サーバーデータの解析に失敗しました。再試行してください。";
+      els.memoArea.value = "Failed to parse server data. Please try again.";
       els.memoArea.readOnly = false;
       els.memoArea.style.backgroundColor = "";
       return;
@@ -2207,7 +2223,7 @@
     }
 
     // 修正後
-// ICE gatheringを待つ（STUNで外部候補を取得するまで）
+    // ICE gatheringを待つ（STUNで外部候補を取得するまで）
     await new Promise((resolve) => {
       let resolved = false;
       const finish = () => {
@@ -2292,8 +2308,26 @@
       btn.title = "Network restored. Ready to connect.";
       btn.style.color = "";
     }
+
+    // ★追加: ネットワーク復帰（Wi-Fi⇔モバイル切り替え等）時にスマホ側なら自動再接続を試みる
+    if (typeof isMobileMode !== "undefined" && isMobileMode) {
+      if (!syncDataChannel || syncDataChannel.readyState !== "open") {
+        const sessionId = new URLSearchParams(window.location.search).get("id");
+        if (sessionId) {
+          els.memoArea.placeholder =
+            "ネットワークの切り替えを検知しました。再接続を試行中...";
+          els.memoArea.readOnly = true;
+          // ネットワークが完全に安定するまで1秒ほど待機して再接続
+          setTimeout(() => {
+            checkMobileConnection();
+          }, 1000);
+        }
+      }
+    }
   });
+
   checkMobileConnection();
+
   // ★追加：スマホのバックグラウンド復帰時の自動再接続ロジック
   document.addEventListener("visibilitychange", () => {
     if (
