@@ -515,7 +515,7 @@ position: sticky;
   display: flex;
   justify-content: center;
   align-items: center;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.15); /* 少し浮き上がらせる */
+  box-shadow: none; /* 少し浮き上がらせる */
 }
 
 /* popup.css の該当箇所を書き換え */
