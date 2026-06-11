@@ -498,6 +498,13 @@ position: sticky;
   align-items: flex-start;
   padding-top: 40px; /* プレースホルダーテキストのすぐ下に広告を配置するための余白 */
   background-color: transparent; /* 背景を透明にし、後ろの進捗文字を見せる */
+  display: flex !important; 
+  transition: opacity 0.3s ease;
+}
+.hidden-overlay {
+  opacity: 0;
+  pointer-events: none;
+  z-index: -1 !important;
 }
 
 #ad-wrapper {
