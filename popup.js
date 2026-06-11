@@ -9,11 +9,32 @@
     }
   });
 
+  // --- 既存の定数・変数定義付近に追加 ---
   const isWindowMode =
     new URLSearchParams(window.location.search).has("mode") ||
     window.location.pathname.endsWith("mobile.html");
   const isMobileMode = window.location.pathname.includes("mobile.html");
 
+  // ★追加: 切断UIをリセットする関数
+  function resetDisconnectUI() {
+    if (isMobileMode) return;
+    const btn = document.getElementById("connect-btn");
+    if (btn && btn.style.color) {
+      // 色が変わっていたら戻す
+      btn.title = "Connect to another device(Ctrl + Q)";
+      btn.style.color = "";
+    }
+    if (els.memoArea.placeholder.includes("lost")) {
+      els.memoArea.placeholder = "";
+    }
+    if (els.charCount.textContent.includes("lost")) {
+      els.charCount.textContent = els.charCount.textContent.replace(
+        "lost ",
+        "",
+      );
+      els.charCount.style.color = "";
+    }
+  }
   const CHUNK_SIZE = 16 * 1024;
   const MAX_BUFFER = 256 * 1024;
   let incomingFile = [];
@@ -787,9 +808,15 @@
 
     state.tabs.forEach((tab, i) => {
       const btn = document.createElement("button");
+
+      const firstLine = tab.text
+        ? tab.text.split(/\r?\n/)[0].trim().substring(0, 15)
+        : "";
+      const displayTitle = firstLine ? `${firstLine}` : `Tab ${i + 1}`; // タイトルがあればそれを、なければデフォルトのTab番号を表示
+
       Object.assign(btn, {
         textContent: i + 1,
-        title: `Tab ${i + 1}`,
+        title: displayTitle, // ★修正：デフォルトのTab番号からプレビュー付きに変更
       });
       if (tab.id === state.activeTabId) btn.classList.add("active");
 
@@ -963,6 +990,7 @@
   });
 
   function addTab() {
+    resetDisconnectUI();
     insertTabAt(state.tabs.length);
   }
 
@@ -1313,18 +1341,34 @@
   window.addEventListener("dragover", async (e) => e.preventDefault());
   window.addEventListener("drop", async (e) => {
     e.preventDefault();
-    if (!db || !e.dataTransfer.files.length) return;
+    // dbのチェックを外す
+    if (!e.dataTransfer.files.length) return;
     for (const file of e.dataTransfer.files) {
       const fileTag = getUniqueFileTag(file.name);
-      const tx = db.transaction("files", "readwrite");
-      tx.objectStore("files").put(file, fileTag);
-      tx.oncomplete = () => updateFiles();
-      insertText(fileTag + "\n");
-      enqueueFile(file, fileTag, file.name);
+
+      const finishSave = () => {
+        updateFiles();
+        insertText(fileTag + "\n");
+        enqueueFile(file, fileTag, file.name);
+      };
+
+      if (db) {
+        const tx = db.transaction("files", "readwrite");
+        tx.objectStore("files").put(file, fileTag);
+        tx.oncomplete = finishSave;
+        tx.onerror = () => {
+          incomingFiles[fileTag] = file;
+          finishSave();
+        };
+      } else {
+        incomingFiles[fileTag] = file;
+        finishSave();
+      }
     }
   });
   els.memoArea.addEventListener("paste", (e) => {
-    if (!db || !e.clipboardData || !e.clipboardData.items) return;
+    // dbのチェックを外す
+    if (!e.clipboardData || !e.clipboardData.items) return;
 
     const items = e.clipboardData.items;
 
@@ -1342,20 +1386,31 @@
         const fileName = `screenshot_${timestamp}.${ext}`;
 
         const fileTag = getUniqueFileTag(fileName);
-        const tx = db.transaction("files", "readwrite");
-        tx.objectStore("files").put(file, fileTag);
 
-        tx.oncomplete = async () => {
+        const finishSave = async () => {
           insertText(fileTag + "\n");
           updateFiles();
           enqueueFile(file, fileTag, fileName);
         };
+
+        if (db) {
+          const tx = db.transaction("files", "readwrite");
+          tx.objectStore("files").put(file, fileTag);
+          tx.oncomplete = finishSave;
+          tx.onerror = () => {
+            incomingFiles[fileTag] = file;
+            finishSave();
+          };
+        } else {
+          incomingFiles[fileTag] = file;
+          finishSave();
+        }
       }
     }
   });
-  // ★修正: 引数に event (e) を受け取るように変更
+  els.memoArea.addEventListener("focus", resetDisconnectUI);
   els.memoArea.addEventListener("input", (e) => {
-    // ★追加: iPhoneのシェイク等によるOSネイティブの「取り消し」「やり直し」を自作履歴機能に流す
+    resetDisconnectUI();
     if (e.inputType === "historyUndo") {
       handleHistory(true);
       return;
@@ -1668,16 +1723,30 @@
     input.type = "file";
     input.multiple = true;
     input.onchange = async () => {
-      if (!db || !input.files.length) return;
+      // dbのチェックを外す
+      if (!input.files.length) return;
       for (const file of input.files) {
         const fileTag = getUniqueFileTag(file.name);
-        const tx = db.transaction("files", "readwrite");
-        tx.objectStore("files").put(file, fileTag);
-        tx.oncomplete = async () => {
+
+        const finishSave = () => {
           insertText(fileTag + "\n");
           updateFiles();
           enqueueFile(file, fileTag, file.name);
         };
+
+        if (db) {
+          const tx = db.transaction("files", "readwrite");
+          tx.objectStore("files").put(file, fileTag);
+          tx.oncomplete = finishSave;
+          tx.onerror = () => {
+            incomingFiles[fileTag] = file;
+            finishSave();
+          };
+        } else {
+          // DBがない場合はメモリに保持して送信へ進む
+          incomingFiles[fileTag] = file;
+          finishSave();
+        }
       }
     };
     input.click();
@@ -1899,14 +1968,12 @@
         iceServers: [
           { urls: "stun:stun.l.google.com:19302" },
           { urls: "stun:stun1.l.google.com:19302" },
-          // ★ 無料のオープンTURNサーバーを追加
           {
-            urls: "turn:openrelay.metered.ca:80",
-            username: "openrelayproject",
-            credential: "openrelayproject",
-          },
-          {
-            urls: "turn:openrelay.metered.ca:443",
+            urls: [
+              "turn:openrelay.metered.ca:80",
+              "turn:openrelay.metered.ca:443",
+              "turn:openrelay.metered.ca:443?transport=tcp",
+            ],
             username: "openrelayproject",
             credential: "openrelayproject",
           },
@@ -1940,13 +2007,14 @@
     }
 
     connectBtn.title = "経路探索中(2/3)...";
-
-    // ICE gatheringを待つ（STUNで外部候補を取得するまで）
+// PC側・モバイル側の経路探索ブロックを以下に置き換え
     await new Promise((resolve) => {
       let resolved = false;
+      let timeoutId;
       const finish = () => {
         if (resolved) return;
         resolved = true;
+        clearTimeout(timeoutId);
         resolve();
       };
 
@@ -1955,23 +2023,20 @@
       } else {
         pc.addEventListener("icecandidate", (e) => {
           if (e.candidate) {
-            // srflx = STUNで取得した外部IP, relay = TURNリレー
-            if (
-              e.candidate.candidate.includes("srflx") ||
-              e.candidate.candidate.includes("relay")
-            ) {
-              finish();
+            // srflx(STUN) または relay(TURN) が見つかったら、
+            // 少しだけ待機(500ms)して複数の候補を確保してから早期終了する
+            if (e.candidate.candidate.includes("srflx") || e.candidate.candidate.includes("relay")) {
+              setTimeout(finish, 500);
             }
           } else {
-            // null candidate = gathering complete
-            finish();
+            finish(); // null candidate は完了を意味する
           }
         });
         pc.addEventListener("icegatheringstatechange", () => {
           if (pc.iceGatheringState === "complete") finish();
         });
-        // ★タイムアウトを10秒に延長（モバイル回線対応）
-        setTimeout(finish, 5000);
+        // モバイル回線の遅延を考慮し最大待機は6秒に設定
+        timeoutId = setTimeout(finish, 6000);
       }
     });
 
@@ -2102,14 +2167,12 @@
         iceServers: [
           { urls: "stun:stun.l.google.com:19302" },
           { urls: "stun:stun1.l.google.com:19302" },
-          // ★ 無料のオープンTURNサーバーを追加
           {
-            urls: "turn:openrelay.metered.ca:80",
-            username: "openrelayproject",
-            credential: "openrelayproject",
-          },
-          {
-            urls: "turn:openrelay.metered.ca:443",
+            urls: [
+              "turn:openrelay.metered.ca:80",
+              "turn:openrelay.metered.ca:443",
+              "turn:openrelay.metered.ca:443?transport=tcp",
+            ],
             username: "openrelayproject",
             credential: "openrelayproject",
           },
@@ -2144,29 +2207,38 @@
     }
 
     // 修正後
+// ICE gatheringを待つ（STUNで外部候補を取得するまで）
     await new Promise((resolve) => {
-      if (pc.iceGatheringState === "complete") {
+      let resolved = false;
+      const finish = () => {
+        if (resolved) return;
+        resolved = true;
         resolve();
-        return;
-      }
-      // ★ srflx を待たず、gatheringComplete か 5秒タイムアウトで送信
-      const finish = (() => {
-        let done = false;
-        return () => {
-          if (!done) {
-            done = true;
-            resolve();
-          }
-        };
-      })();
+      };
 
-      pc.addEventListener("icegatheringstatechange", () => {
-        if (pc.iceGatheringState === "complete") finish();
-      });
-      pc.addEventListener("icecandidate", (e) => {
-        if (!e.candidate) finish(); // null = gathering complete
-      });
-      setTimeout(finish, 5000); // 5秒待てば十分
+      if (pc.iceGatheringState === "complete") {
+        finish();
+      } else {
+        pc.addEventListener("icecandidate", (e) => {
+          if (e.candidate) {
+            // srflx = STUNで取得した外部IP, relay = TURNリレー
+            if (
+              e.candidate.candidate.includes("srflx") ||
+              e.candidate.candidate.includes("relay")
+            ) {
+              finish();
+            }
+          } else {
+            // null candidate = gathering complete
+            finish();
+          }
+        });
+        pc.addEventListener("icegatheringstatechange", () => {
+          if (pc.iceGatheringState === "complete") finish();
+        });
+        // ★タイムアウトを10秒に延長（モバイル回線対応）
+        setTimeout(finish, 3000);
+      }
     });
 
     els.memoArea.placeholder = "サーバーに登録中(3/3)...";
@@ -2222,4 +2294,24 @@
     }
   });
   checkMobileConnection();
+  // ★追加：スマホのバックグラウンド復帰時の自動再接続ロジック
+  document.addEventListener("visibilitychange", () => {
+    if (
+      document.visibilityState === "visible" &&
+      typeof isMobileMode !== "undefined" &&
+      isMobileMode
+    ) {
+      // 画面が表示された際、通信経路が死んでいたら再接続を試みる
+      if (!syncDataChannel || syncDataChannel.readyState !== "open") {
+        const sessionId = new URLSearchParams(window.location.search).get("id");
+        if (sessionId) {
+          // 少しだけ待機して（OSのネットワーク復帰待ち）再接続を実行
+          setTimeout(() => {
+            els.memoArea.placeholder = "通信復帰を試行中...";
+            checkMobileConnection();
+          }, 1000);
+        }
+      }
+    }
+  });
 })();
