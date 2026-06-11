@@ -1899,8 +1899,8 @@
       stopHeartbeat();
       els.memoArea.placeholder =
         "Disconnected. Please show the QR code again to reconnect.";
-      if (!els.charCount.textContent.includes("Disconnected")) {
-        els.charCount.textContent = "Disconnected " + els.charCount.textContent;
+      if (!els.charCount.textContent.includes("lost")) {
+        els.charCount.textContent = "lost " + els.charCount.textContent;
       }
       els.charCount.style.color = "#f44336";
 
@@ -2103,15 +2103,15 @@
       }
       if (pollCount > maxPolls) {
         clearInterval(signalingPollInterval);
-        connectBtn.title = "接続タイムアウト(60秒)";
+        connectBtn.title = "Connection timeout(60s)";
         connectBtn.style.color = "#f44336";
         document.getElementById("qr-container").style.display = "none";
         disconnectSync();
         return;
       }
       try {
-        // ★修正: キャッシュを無効化して確実に最新のAnswerを取得する
-        const res = await fetch(WORKER_URL + "/answer?id=" + sessionId, {
+        // ★修正: URL末尾に現在時刻を付与し、キャリアの強制キャッシュを回避
+        const res = await fetch(WORKER_URL + "/answer?id=" + sessionId + "&t=" + Date.now(), {
           cache: "no-store",
         });
         if (res.ok) {
@@ -2131,19 +2131,22 @@
     const sessionId = new URLSearchParams(window.location.search).get("id");
     if (!sessionId || !window.location.pathname.endsWith("mobile.html")) return;
 
-    els.memoArea.placeholder = "PCに接続中(1/3)...";
+    els.memoArea.placeholder = "Connecting to PC...(1/3)";
     els.memoArea.readOnly = true;
     els.memoArea.style.backgroundColor = "#f5f5f5";
 
-    let res;
+let res;
     // PCのofferアップロードを待つ（最大20秒）
     for (let i = 0; i < 10; i++) {
       try {
-        res = await fetch(WORKER_URL + "/offer?id=" + sessionId);
+        // ★修正: URL末尾に現在時刻を付与し、キャリアの強制キャッシュを回避
+        res = await fetch(WORKER_URL + "/offer?id=" + sessionId + "&t=" + Date.now(), {
+          cache: "no-store"
+        });
         if (res.ok) break;
       } catch (e) {}
       const dots = ".".repeat((i % 3) + 1);
-      els.memoArea.placeholder = `PCからの接続を待機中${dots} (${i + 1}/10)`;
+      els.memoArea.placeholder = `Connecting to PC...${dots} (${i + 1}/10)`;
       await new Promise((resolve) => setTimeout(resolve, 2000));
     }
 
@@ -2189,7 +2192,7 @@
       els.memoArea.readOnly = false;
       els.memoArea.style.backgroundColor = "";
       els.memoArea.value =
-        "WebRTCの初期化に失敗しました。シークレットモードでは一部のブラウザで制限があります。";
+        "Failed to initialize WebRTC. Some browsers may have limitations in secret mode.";
       return;
     }
 
@@ -2205,20 +2208,20 @@
     } catch (err) {
       console.error("Answer creation failed:", err);
       els.memoArea.value =
-        "接続ネゴシエーションに失敗しました。再試行してください。";
+        "Failed to create answer. Please try again.";
       els.memoArea.readOnly = false;
       els.memoArea.style.backgroundColor = "";
       disconnectSync();
       return;
     }
-
-    // 修正後
-    // ICE gatheringを待つ（STUNで外部候補を取得するまで）
+// ★修正: 改善版の経路探索ロジック（PC側と同一）
     await new Promise((resolve) => {
       let resolved = false;
+      let timeoutId;
       const finish = () => {
         if (resolved) return;
         resolved = true;
+        clearTimeout(timeoutId);
         resolve();
       };
 
@@ -2227,27 +2230,24 @@
       } else {
         pc.addEventListener("icecandidate", (e) => {
           if (e.candidate) {
-            // srflx = STUNで取得した外部IP, relay = TURNリレー
             if (
               e.candidate.candidate.includes("srflx") ||
               e.candidate.candidate.includes("relay")
             ) {
-              finish();
+              setTimeout(finish, 500);
             }
           } else {
-            // null candidate = gathering complete
-            finish();
+            finish(); 
           }
         });
         pc.addEventListener("icegatheringstatechange", () => {
           if (pc.iceGatheringState === "complete") finish();
         });
-        // ★タイムアウトを10秒に延長（モバイル回線対応）
-        setTimeout(finish, 3000);
+        timeoutId = setTimeout(finish, 6000);
       }
     });
 
-    els.memoArea.placeholder = "サーバーに登録中(3/3)...";
+    els.memoArea.placeholder = "Registering with server...(3/3)...";
     try {
       const postRes = await fetch(WORKER_URL + "/answer?id=" + sessionId, {
         method: "POST",
@@ -2259,18 +2259,18 @@
     } catch (err) {
       console.error(err);
       els.memoArea.value =
-        "Answerのサーバー登録に失敗しました。再試行してください。";
+        "Failed to upload answer. Please try again.";
       els.memoArea.readOnly = false;
       els.memoArea.style.backgroundColor = "";
       disconnectSync();
       return;
     }
 
-    els.memoArea.placeholder = "同期完了を待機中...";
+    els.memoArea.placeholder = "Waiting for synchronization...";
     pc.addEventListener("connectionstatechange", () => {
       if (pc.connectionState === "failed") {
         els.memoArea.placeholder =
-          "接続に失敗しました。QRコードを再表示してください。";
+          "Failed to establish connection. Please display the QR code again.";
         els.memoArea.readOnly = false;
         els.memoArea.style.backgroundColor = "";
         disconnectSync();
@@ -2305,7 +2305,7 @@
         const sessionId = new URLSearchParams(window.location.search).get("id");
         if (sessionId) {
           els.memoArea.placeholder =
-            "ネットワークの切り替えを検知しました。再接続を試行中...";
+            "Network switch detected. Attempting reconnection...";
           els.memoArea.readOnly = true;
           // ネットワークが完全に安定するまで1秒ほど待機して再接続
           setTimeout(() => {
@@ -2331,7 +2331,7 @@
         if (sessionId) {
           // 少しだけ待機して（OSのネットワーク復帰待ち）再接続を実行
           setTimeout(() => {
-            els.memoArea.placeholder = "通信復帰を試行中...";
+            els.memoArea.placeholder = "Attempting to reconnect...";
             checkMobileConnection();
           }, 1000);
         }
