@@ -2139,13 +2139,11 @@
     // PCのofferアップロードを待つ（最大20秒）
     for (let i = 0; i < 10; i++) {
       try {
-        res = await fetch(WORKER_URL + "/offer?id=" + sessionId, {
-          cache: "no-store", // ★追加: キャッシュを読まず最新を取得
-        });
+        res = await fetch(WORKER_URL + "/offer?id=" + sessionId);
         if (res.ok) break;
       } catch (e) {}
       const dots = ".".repeat((i % 3) + 1);
-      els.memoArea.placeholder = `Waiting for connection from PC${dots} (${i + 1}/10)`;
+      els.memoArea.placeholder = `PCからの接続を待機中${dots} (${i + 1}/10)`;
       await new Promise((resolve) => setTimeout(resolve, 2000));
     }
 
