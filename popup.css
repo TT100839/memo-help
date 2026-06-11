@@ -518,24 +518,24 @@ position: sticky;
   box-shadow: 0 4px 16px rgba(0,0,0,0.15); /* 少し浮き上がらせる */
 }
 
+/* popup.css の該当箇所を書き換え */
 #overlay-close-btn {
   position: absolute;
-  top: -12px;
-  right: -12px;
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
-  background-color: #f44336;
-  color: #ffffff;
+  top: 4px;   /* 広告枠の内側寄りに配置 */
+  right: 4px; /* 広告枠の内側寄りに配置 */
+  width: 14px;  /* めっちゃ小さく */
+  height: 14px; /* めっちゃ小さく */
+  background-color: transparent; /* 赤背景を削除（透明） */
+  color: var(--secondary-text);  /* 目立たない薄いグレー */
   border: none;
-  font-size: 14px;
-  font-weight: bold;
+  font-size: 9px; /* 文字も最小クラスに */
   cursor: pointer;
   z-index: 100;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+  opacity: 0.5; /* 透明度を大幅に上げて見えにくく設定 */
+  box-shadow: none; /* 影を消して存在感を抹消 */
 }
 
 /* =========================================
