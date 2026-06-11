@@ -2113,10 +2113,6 @@
         // ★修正: キャッシュを無効化して確実に最新のAnswerを取得する
         const res = await fetch(WORKER_URL + "/answer?id=" + sessionId, {
           cache: "no-store",
-          headers: {
-            "Cache-Control": "no-cache",
-            Pragma: "no-cache",
-          },
         });
         if (res.ok) {
           const answer = await res.json();
@@ -2145,10 +2141,6 @@
       try {
         res = await fetch(WORKER_URL + "/offer?id=" + sessionId, {
           cache: "no-store", // ★追加: キャッシュを読まず最新を取得
-          headers: {
-            "Cache-Control": "no-cache",
-            Pragma: "no-cache",
-          },
         });
         if (res.ok) break;
       } catch (e) {}
