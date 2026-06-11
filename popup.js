@@ -2135,7 +2135,7 @@
     }, 2000);
   };
 
-async function checkMobileConnection() {
+  async function checkMobileConnection() {
     const sessionId = new URLSearchParams(window.location.search).get("id");
     if (!sessionId || !window.location.pathname.endsWith("mobile.html")) return;
 
@@ -2150,18 +2150,11 @@ async function checkMobileConnection() {
 
     const closeInlineOverlay = () => {
       if (!inlineOverlay) return;
-      if (!isSyncConnected) {
-        // 通信中のキャンセル
-        disconnectSync();
-        els.memoArea.readOnly = false;
-        els.memoArea.style.backgroundColor = "";
-        els.memoArea.value = "Connection cancelled.";
-      } else {
-        // 通信完了後のクローズ
-        els.memoArea.readOnly = false;
-        els.memoArea.style.backgroundColor = "";
-        els.memoArea.placeholder = "";
-      }
+
+      // ★修正: キャンセル処理を削除し、通信完了後に「閉じる」機能のみ残す
+      els.memoArea.readOnly = false;
+      els.memoArea.style.backgroundColor = "";
+      els.memoArea.placeholder = "";
       inlineOverlay.style.display = "none";
     };
 
@@ -2170,9 +2163,15 @@ async function checkMobileConnection() {
       inlineOverlay.onclick = (e) => {
         // 広告本体がタップされた場合は何もしない（リンクを生かす）
         if (overlayAdContainer && overlayAdContainer.contains(e.target)) return;
+
+        // ★追加: 通信中（isSyncConnected が false）の場合はタップを無効化し、物騒なキャンセルを防ぐ
+        if (!isSyncConnected) return;
+
+        // 通信完了後なら閉じる
         closeInlineOverlay();
       };
     }
+
     // ×ボタンをタップした時の処理
     if (overlayCloseBtn) {
       overlayCloseBtn.onclick = (e) => {
@@ -2195,7 +2194,7 @@ async function checkMobileConnection() {
       try {
         res = await fetch(
           WORKER_URL + "/offer?id=" + sessionId + "&t=" + Date.now(),
-          { cache: "no-store" }
+          { cache: "no-store" },
         );
         if (res.ok) break;
       } catch (e) {}
