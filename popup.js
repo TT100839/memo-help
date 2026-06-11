@@ -229,31 +229,39 @@
 
         state.tabs = data.tabs;
         state.activeTabId = data.activeTabId;
+        if (isMobileMode) {
+          // モバイルの場合は強制的にタブを切り替えてUIを再描画させる
+          switchTab(state.activeTabId, true);
+        } else {
+          // PCの場合はカーソル飛びを防ぐための既存ロジックを維持
+          const t = state.tabs.find((t) => t.id === state.activeTabId);
+          if (
+            els.memoArea.value !== (t ? t.text : "") &&
+            document.activeElement !== els.memoArea
+          ) {
+            els.memoArea.value = t ? t.text : "";
+          }
 
-        const t = state.tabs.find((t) => t.id === state.activeTabId);
-        if (els.memoArea.value !== (t ? t.text : "") && document.activeElement !== els.memoArea) {
-          els.memoArea.value = t ? t.text : "";
-        }
+          if (data.searchVisible !== undefined) {
+            els.searchContainer.style.display = data.searchVisible
+              ? "flex"
+              : "none";
+          }
+          if (
+            data.searchValue !== undefined &&
+            els.searchInput.value !== data.searchValue
+          ) {
+            els.searchInput.value = data.searchValue;
+          }
 
-        if (data.searchVisible !== undefined) {
-          els.searchContainer.style.display = data.searchVisible
-            ? "flex"
-            : "none";
-        }
-        if (
-          data.searchValue !== undefined &&
-          els.searchInput.value !== data.searchValue
-        ) {
-          els.searchInput.value = data.searchValue;
-        }
-
-        renderTabs();
-        updateVisuals();
-        if (!isMobileMode) {
-          chrome.storage.local.set({
-            tabs: state.tabs,
-            activeTabId: state.activeTabId,
-          });
+          renderTabs();
+          updateVisuals();
+          if (!isMobileMode) {
+            chrome.storage.local.set({
+              tabs: state.tabs,
+              activeTabId: state.activeTabId,
+            });
+          }
         }
       }
     } catch (e) {}
@@ -436,9 +444,13 @@
       if (area === "local" && changes.tabs) {
         state.tabs = changes.tabs.newValue || [];
         const currentTab = state.tabs.find((t) => t.id === state.activeTabId);
-        
+
         // 追加: テキストエリアにフォーカスがない場合のみ更新を許可
-        if (currentTab && els.memoArea.value !== currentTab.text && document.activeElement !== els.memoArea) {
+        if (
+          currentTab &&
+          els.memoArea.value !== currentTab.text &&
+          document.activeElement !== els.memoArea
+        ) {
           els.memoArea.value = currentTab.text;
           updateVisuals();
         }
@@ -1714,7 +1726,7 @@
         }
         try {
           syncDataChannel.send(JSON.stringify({ type: "ping" }));
-          const waitTime = isBackground ? 120000 : 8000;
+          const waitTime = isBackground ? 120000 : 20000;
           heartbeatTimeout = setTimeout(() => {
             console.warn("Heartbeat timeout: disconnected");
             oncloseHandler();
@@ -1959,7 +1971,7 @@
           if (pc.iceGatheringState === "complete") finish();
         });
         // ★タイムアウトを10秒に延長（モバイル回線対応）
-        setTimeout(finish, 10000);
+        setTimeout(finish, 5000);
       }
     });
 
