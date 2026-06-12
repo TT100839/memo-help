@@ -21,7 +21,7 @@
     const btn = document.getElementById("connect-btn");
     if (btn && btn.style.color) {
       // 色が変わっていたら戻す
-      btn.title = "Connect to another device(Test)(Ctrl + Q)";
+      btn.title = "Connect to another device(Ctrl + Q)";
       btn.style.color = "";
     }
     if (els.memoArea.placeholder.includes("lost")) {
@@ -1145,13 +1145,8 @@
     const val = els.memoArea.value;
 
     if (document.activeElement !== els.memoArea) {
-      if (typeof t.selectionStart === "number") {
-        start = t.selectionStart;
-        end = t.selectionEnd;
-      } else {
-        start = val.length;
-        end = val.length;
-      }
+      start = val.length;
+      end = val.length;
     }
 
     els.memoArea.value = val.slice(0, start) + text + val.slice(end);
@@ -1501,7 +1496,7 @@
 
       if (isConnecting && isOutsideClick) {
         disconnectSync();
-        connectBtn.title = "Connect to another device(Test)(Ctrl + Q)";
+        connectBtn.title = "Connect to another device(Ctrl + Q)";
         connectBtn.style.color = "";
         qrContainer.style.display = "none";
         els.charCount.style.color = "";
@@ -1950,7 +1945,7 @@
 
     if (syncPeerConnection || syncDataChannel) {
       disconnectSync();
-      connectBtn.title = "Connect to another device(Test)(Ctrl + Q)";
+      connectBtn.title = "Connect to another device(Ctrl + Q)";
       connectBtn.style.color = "";
       document.getElementById("qr-container").style.display = "none";
       els.charCount.style.color = "";
@@ -2076,7 +2071,7 @@
     });
     const sessionIdText = document.getElementById("session-id-text");
     if (sessionIdText) {
-      sessionIdText.innerHTML = `<span style="font-size:11px;color:#555;">Connecting...</span><br><span id="copy-url-btn" style="color:#007aff;text-decoration:underline;cursor:pointer;font-size:12px;">Copy URL</span>`;
+      sessionIdText.innerHTML = `<span style="font-size:11px;color:#555;">Waiting for connection...</span><br><span id="copy-url-btn" style="color:#007aff;text-decoration:underline;cursor:pointer;font-size:12px;">Copy URL</span>`;
       document.getElementById("copy-url-btn").onclick = (e) => {
         e.stopPropagation();
         navigator.clipboard.writeText(connectUrl).then(() => {
@@ -2116,12 +2111,9 @@
       }
       try {
         // ★修正: URL末尾に現在時刻を付与し、キャリアの強制キャッシュを回避
-        const res = await fetch(
-          WORKER_URL + "/answer?id=" + sessionId + "&t=" + Date.now(),
-          {
-            cache: "no-store",
-          },
-        );
+        const res = await fetch(WORKER_URL + "/answer?id=" + sessionId + "&t=" + Date.now(), {
+          cache: "no-store",
+        });
         if (res.ok) {
           const answer = await res.json();
           await pc.setRemoteDescription(answer);
@@ -2139,62 +2131,18 @@
     const sessionId = new URLSearchParams(window.location.search).get("id");
     if (!sessionId || !window.location.pathname.endsWith("mobile.html")) return;
 
-    // --- 追加: オーバーレイの制御ロジック ---
-    const inlineOverlay = document.getElementById("inline-loading-overlay");
-    const overlayCloseBtn = document.getElementById("overlay-close-btn");
-    const overlayAdContainer = document.getElementById("overlay-ad-container");
-    let isSyncConnected = false;
-
-    if (inlineOverlay) inlineOverlay.classList.remove("hidden-overlay");
-    if (overlayCloseBtn) overlayCloseBtn.style.display = "none";
-
-    const closeInlineOverlay = () => {
-      if (!inlineOverlay) return;
-
-      els.memoArea.readOnly = false;
-      els.memoArea.style.backgroundColor = "";
-      els.memoArea.placeholder = "";
-      inlineOverlay.classList.add("hidden-overlay");
-    };
-
-    // 広告以外（余白）をタップした時の処理
-    if (inlineOverlay) {
-      inlineOverlay.onclick = (e) => {
-        // 広告本体がタップされた場合は何もしない（リンクを生かす）
-        if (overlayAdContainer && overlayAdContainer.contains(e.target)) return;
-
-        // ★追加: 通信中（isSyncConnected が false）の場合はタップを無効化し、物騒なキャンセルを防ぐ
-        if (!isSyncConnected) return;
-
-        // 通信完了後なら閉じる
-        closeInlineOverlay();
-      };
-    }
-
-    // ×ボタンをタップした時の処理
-    if (overlayCloseBtn) {
-      overlayCloseBtn.onclick = (e) => {
-        e.stopPropagation();
-        closeInlineOverlay();
-      };
-    }
-    // ----------------------------------------
-
     els.memoArea.placeholder = "Connecting to PC...(1/3)";
     els.memoArea.readOnly = true;
     els.memoArea.style.backgroundColor = "#f5f5f5";
 
-    let res;
+let res;
     // PCのofferアップロードを待つ（最大20秒）
     for (let i = 0; i < 10; i++) {
-      // ユーザーが余白をタップしてキャンセルした場合、ループを抜ける
-      if (inlineOverlay && inlineOverlay.classList.contains("hidden-overlay")) return;
-
       try {
-        res = await fetch(
-          WORKER_URL + "/offer?id=" + sessionId + "&t=" + Date.now(),
-          { cache: "no-store" },
-        );
+        // ★修正: URL末尾に現在時刻を付与し、キャリアの強制キャッシュを回避
+        res = await fetch(WORKER_URL + "/offer?id=" + sessionId + "&t=" + Date.now(), {
+          cache: "no-store"
+        });
         if (res.ok) break;
       } catch (e) {}
       const dots = ".".repeat((i % 3) + 1);
@@ -2203,7 +2151,6 @@
     }
 
     if (!res || !res.ok) {
-      if (inlineOverlay) inlineOverlay.style.display = "none";
       els.memoArea.readOnly = false;
       els.memoArea.style.backgroundColor = "";
       els.memoArea.value =
@@ -2217,7 +2164,6 @@
     try {
       offer = await res.json();
     } catch (e) {
-      if (inlineOverlay) inlineOverlay.style.display = "none";
       els.memoArea.value = "Failed to parse server data. Please try again.";
       els.memoArea.readOnly = false;
       els.memoArea.style.backgroundColor = "";
@@ -2243,7 +2189,6 @@
       });
     } catch (err) {
       console.error(err);
-      if (inlineOverlay) inlineOverlay.style.display = "none";
       els.memoArea.readOnly = false;
       els.memoArea.style.backgroundColor = "";
       els.memoArea.value =
@@ -2262,14 +2207,14 @@
       await pc.setLocalDescription(answer);
     } catch (err) {
       console.error("Answer creation failed:", err);
-      if (inlineOverlay) inlineOverlay.style.display = "none";
-      els.memoArea.value = "Failed to create answer. Please try again.";
+      els.memoArea.value =
+        "Failed to create answer. Please try again.";
       els.memoArea.readOnly = false;
       els.memoArea.style.backgroundColor = "";
       disconnectSync();
       return;
     }
-
+// ★修正: 改善版の経路探索ロジック（PC側と同一）
     await new Promise((resolve) => {
       let resolved = false;
       let timeoutId;
@@ -2292,7 +2237,7 @@
               setTimeout(finish, 500);
             }
           } else {
-            finish();
+            finish(); 
           }
         });
         pc.addEventListener("icegatheringstatechange", () => {
@@ -2313,8 +2258,8 @@
         throw new Error("Answer upload failed: " + postRes.status);
     } catch (err) {
       console.error(err);
-      if (inlineOverlay) inlineOverlay.style.display = "none";
-      els.memoArea.value = "Failed to upload answer. Please try again.";
+      els.memoArea.value =
+        "Failed to upload answer. Please try again.";
       els.memoArea.readOnly = false;
       els.memoArea.style.backgroundColor = "";
       disconnectSync();
@@ -2324,7 +2269,6 @@
     els.memoArea.placeholder = "Waiting for synchronization...";
     pc.addEventListener("connectionstatechange", () => {
       if (pc.connectionState === "failed") {
-        if (inlineOverlay) inlineOverlay.style.display = "none";
         els.memoArea.placeholder =
           "Failed to establish connection. Please display the QR code again.";
         els.memoArea.readOnly = false;
@@ -2332,10 +2276,7 @@
         disconnectSync();
       }
       if (pc.connectionState === "connected") {
-        // ★ 通信完了時の挙動：フラグを立てて×ボタンを表示し、メッセージを変更する
-        isSyncConnected = true;
-        els.memoArea.placeholder = "Sync complete! Tap anywhere to start.";
-        if (overlayCloseBtn) overlayCloseBtn.style.display = "flex";
+        els.memoArea.placeholder = "";
       }
     });
   }
