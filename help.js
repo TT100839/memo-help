@@ -16,6 +16,7 @@ const els = {
   helpBtn: document.getElementById("help-btn"), // ヘルプボタンを追加
   connectBtn: document.getElementById("connect-btn"), // スマホ接続ボタンを追加 (Add smartphone connection button)
   qrContainer: document.getElementById("qr-container"),
+  qrImage: document.getElementById("qr-image"),
   header: document.getElementById("header"),
   charCount: document.getElementById("char-count"),
   searchBtn: document.getElementById("search-btn"),
@@ -763,6 +764,7 @@ function resetDemo() {
   els.backdrop.innerHTML = "";
   els.contextMenu.style.display = "none";
   if (els.qrContainer) els.qrContainer.style.display = "none";
+  if (els.qrImage) els.qrImage.src = "";
 
   const targets = [
     els.addTabBtn,
@@ -966,13 +968,17 @@ async function playDemo(type) {
         await waitForUserAction(els.connectBtn, ["KeyQ"], ["click"], signal);
         els.connectBtn.style.pointerEvents = "";
 
+        const connectUrl = "https://tt100839.github.io/memo-help/mobile.html?id=demo-session-1234";
+        if (els.qrImage) {
+          els.qrImage.src = "https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=" + encodeURIComponent(connectUrl);
+        }
         if (els.qrContainer) els.qrContainer.style.display = "block";
       }
 
       await sleep(200, signal);
 
       const tip =
-        "\n\nQRコードが表示されました\nスマホのカメラで読み取ると、同じネットワーク内でなくてもWebRTC(Web Real-Time Communication)技術を使って同期されます\n\nショートカットもあります\nCtrl + Q で接続メニューを開閉できます";
+        "\n\nQRコードが表示されました\nスマホのカメラで読み取ると、WebRTC(Web Real-Time Communication)技術を使って同期されます\n\nショートカットもあります\nCtrl + Q で接続メニューを開閉できます";
       await typeText(tip, 20, true, signal);
     } else if (type === "shortcuts") {
       const intro = "【ショートカットキー完全一覧】\n\n";
