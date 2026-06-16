@@ -969,7 +969,7 @@ async function playDemo(type) {
         if (els.qrContainer) els.qrContainer.style.display = "block";
       }
 
-      await sleep(500, signal);
+      await sleep(200, signal);
 
       const tip =
         "\n\nQRコードが表示されました\nスマホのカメラで読み取ると、同じネットワーク内でなくてもWebRTC(Web Real-Time Communication)技術を使って同期されます\n\nショートカットもあります\nCtrl + Q で接続メニューを開閉できます";
@@ -994,6 +994,7 @@ async function playDemo(type) {
         "Ctrl + F または Ctrl + H ： 検索窓を開く\n" +
         "Esc ： 検索窓を閉じる\n" +
         "Ctrl + S または Ctrl + Shift + E ： メモをエクスポート\n" +
+        "Ctrl + Q ： スマホ同期QRコードの生成（テスト実装）\n" +
         "Ctrl + P ： ウィンドウモード切替\n\n" +
         "※ヘルプ画面ではブラウザの機能が優先されるため一部使えません。実際のショートカットは拡張機能のポップアップ画面にてご利用ください！";
       els.memoArea.value += list;
