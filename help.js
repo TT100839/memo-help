@@ -13,6 +13,9 @@ const els = {
   undoBtn: document.getElementById("undo-btn"),
   redoBtn: document.getElementById("redo-btn"),
   exportBtn: document.getElementById("export-btn"),
+  helpBtn: document.getElementById("help-btn"), // ヘルプボタンを追加
+  connectBtn: document.getElementById("connect-btn"), // スマホ接続ボタンを追加 (Add smartphone connection button)
+  qrContainer: document.getElementById("qr-container"),
   header: document.getElementById("header"),
   charCount: document.getElementById("char-count"),
   searchBtn: document.getElementById("search-btn"),
@@ -759,6 +762,7 @@ function resetDemo() {
   els.searchInput.value = "";
   els.backdrop.innerHTML = "";
   els.contextMenu.style.display = "none";
+  if (els.qrContainer) els.qrContainer.style.display = "none";
 
   const targets = [
     els.addTabBtn,
@@ -767,6 +771,7 @@ function resetDemo() {
     els.timeBtn,
     els.exportBtn,
     els.modeSwitchBtn,
+    els.connectBtn,
   ];
   targets.forEach((el) => {
     if (el) {
@@ -949,9 +954,28 @@ async function playDemo(type) {
       const tip =
         "\n\nデスクトップの隅に常駐させておきたい場合に便利です。\n\nヘルプ画面では使えないですが、ショートカットもあります。\nCtrl + P でウィンドウモード切替";
       await typeText(tip, 20, true, signal);
-    } else if (type === "shortcuts") {
+    } else if (type === "qr") {
       const intro =
-        "【ショートカットキー完全一覧】\n\n";
+        "スマホと連携して、メモをリアルタイムに同期できます\n\n光っている下部の「スマホ接続」ボタンをクリックして次へ進んでください";
+      await typeText(intro, 20, false, signal);
+
+      if (els.connectBtn) {
+        els.connectBtn.style.pointerEvents = "auto";
+        if (document.getElementById("footer"))
+          document.getElementById("footer").style.pointerEvents = "auto";
+        await waitForUserAction(els.connectBtn, ["KeyQ"], ["click"], signal);
+        els.connectBtn.style.pointerEvents = "";
+
+        if (els.qrContainer) els.qrContainer.style.display = "block";
+      }
+
+      await sleep(500, signal);
+
+      const tip =
+        "\n\nQRコードが表示されました\nスマホのカメラで読み取ると、同じネットワーク内でなくてもWebRTC(Web Real-Time Communication)技術を使って同期されます\n\nショートカットもあります\nCtrl + Q で接続メニューを開閉できます";
+      await typeText(tip, 20, true, signal);
+    } else if (type === "shortcuts") {
+      const intro = "【ショートカットキー完全一覧】\n\n";
 
       const list =
         "◆ タブの操作\n" +
@@ -970,10 +994,10 @@ async function playDemo(type) {
         "Ctrl + F または Ctrl + H ： 検索窓を開く\n" +
         "Esc ： 検索窓を閉じる\n" +
         "Ctrl + S または Ctrl + Shift + E ： メモをエクスポート\n" +
-        "Ctrl + P ： ウィンドウモード切替\n\n"+
+        "Ctrl + P ： ウィンドウモード切替\n\n" +
         "※ヘルプ画面ではブラウザの機能が優先されるため一部使えません。実際のショートカットは拡張機能のポップアップ画面にてご利用ください！";
       els.memoArea.value += list;
-      const t = state.tabs.find(t => t.id === state.activeTabId);
+      const t = state.tabs.find((t) => t.id === state.activeTabId);
       if (t) t.text = els.memoArea.value;
       updateVisuals();
     }
@@ -1007,6 +1031,7 @@ document.addEventListener("DOMContentLoaded", () => {
     "btn-demo-export": "export",
     "btn-demo-window": "window",
     "btn-demo-shortcuts": "shortcuts",
+    "btn-demo-qr": "qr",
   };
 
   for (const [id, type] of Object.entries(map)) {
